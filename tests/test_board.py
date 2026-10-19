@@ -1,0 +1,74 @@
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from board import shape_messages, shape_protocol, stations_from, BUILTIN_PROTOCOL
+
+
+def msg(**kwargs):
+    base = {
+        "id": "1", "thread": "release-1", "sender": "linux", "recipient": "mac",
+        "at": "2026-10-18 15:00:00.000Z", "subject": "hello", "body": "text",
+        "baton": "mac", "issue": "TimeFlow#1", "read_at": "2026-10-18 15:01:00.000Z",
+    }
+    base.update(kwargs)
+    return base
+
+
+class ShapeTests(unittest.TestCase):
+    def test_last_message_holds_the_baton(self):
+        threads = shape_messages([
+            msg(id="1", at="2026-10-18 14:00:00.000Z", baton="mac", subject="first"),
+            msg(id="2", at="2026-10-18 16:00:00.000Z", sender="mac", recipient="ian",
+                baton="ian", subject="over to you", read_at=None),
+        ])
+        self.assertEqual(len(threads), 1)
+        self.assertEqual(threads[0]["baton"], "ian")
+        self.assertEqual(threads[0]["subject"], "over to you")
+        self.assertEqual(threads[0]["count"], 2)
+        self.assertEqual(len(threads[0]["unread"]), 1)
+        self.assertEqual(threads[0]["messages"][0]["at"], "2026-10-18T14:00:00.000Z")
+
+    def test_stations_split_holding_and_waiting(self):
+        threads = shape_messages([
+            msg(thread="a", baton="mac", sender="linux", recipient="mac"),
+            msg(thread="b", baton="ian", sender="mac", recipient="ian",
+                at="2026-10-18 17:00:00.000Z"),
+            msg(thread="c", baton="none", sender="linux", recipient="mac",
+                at="2026-10-18 12:00:00.000Z"),
+        ])
+        stations, settled = stations_from(threads)
+        by_id = {row["id"]: row for row in stations}
+        self.assertEqual([row["thread"] for row in by_id["mac"]["holding"]], ["a"])
+        self.assertEqual(by_id["linux"]["waiting"][0]["on"], "mac")
+        self.assertEqual([row["thread"] for row in by_id["ian"]["holding"]], ["b"])
+        self.assertEqual([row["thread"] for row in settled], ["c"])
+        self.assertEqual(by_id["linux"]["holding"], [])
+
+    def test_protocol_absent_still_draws_lanes(self):
+        rules = {**BUILTIN_PROTOCOL, "from_file": False, "ready_means": {}}
+        shaped = shape_protocol(rules, [], [], 404, 404)
+        self.assertFalse(shaped["live"])
+        self.assertEqual([lane["id"] for lane in shaped["lanes"]], ["android", "web", "linux", "ios"])
+        self.assertEqual(shaped["lanes"][0]["rows"], [])
+        self.assertEqual(shaped["builds_http"], 404)
+
+    def test_protocol_rows_group_by_lane(self):
+        rules = {**BUILTIN_PROTOCOL, "from_file": True, "ready_means": {}}
+        rows = [
+            {"lane": "ios", "status": "processing", "updated_at": "2026-10-18T15:00:00Z",
+             "version": "1.1.4", "app_name": "TimeFlow"},
+            {"lane": "ios", "status": "ready", "updated_at": "2026-10-17T15:00:00Z",
+             "version": "1.1.3", "app_name": "TimeFlow"},
+        ]
+        shaped = shape_protocol(rules, rows, [], 200, 404)
+        ios = next(lane for lane in shaped["lanes"] if lane["id"] == "ios")
+        self.assertEqual([row["status"] for row in ios["rows"]], ["processing", "ready"])
+        self.assertTrue(shaped["live"])
+        self.assertEqual(shaped["plans_http"], 404)
+
+
+if __name__ == "__main__":
+    unittest.main()
