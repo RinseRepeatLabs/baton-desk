@@ -125,9 +125,11 @@ class NtfyTests(unittest.TestCase):
         posted = []
         cfg = {"BATON_DESK_NTFY_URL": "https://ntfy.example/topic"}
         ntfy.publish(payload([{"thread": "old", "at": "t1", "subject": "sitting", "sender": "linux"}]), path, opener=posted.append, cfg=cfg)
-        ntfy.set_enabled(path, False)
+        ntfy.set_enabled(path, "ian", False)
         status = ntfy.public_status(path, cfg)
-        self.assertEqual(status, {"configured": True, "enabled": False, "station": "ian"})
+        self.assertEqual(status["stations"]["ian"], False)
+        self.assertEqual(status["stations"]["linux"], False)
+        self.assertTrue(status["configured"])
         self.assertNotIn("url", status)
         ntfy.publish(payload([
             {"thread": "old", "at": "t1", "subject": "sitting", "sender": "linux"},
@@ -135,14 +137,60 @@ class NtfyTests(unittest.TestCase):
         ]), path, opener=posted.append, cfg=cfg)
         self.assertEqual(posted, [])
         self.assertEqual(ntfy.load_seen(path, "ian"), {("old", "t1"), ("new", "t2")})
-        ntfy.set_enabled(path, True)
-        self.assertTrue(ntfy.is_enabled(path))
+        ntfy.set_enabled(path, "ian", True)
+        self.assertTrue(ntfy.is_enabled(path, "ian"))
         again = payload([
             {"thread": "old", "at": "t1", "subject": "sitting", "sender": "linux"},
             {"thread": "new", "at": "t2", "subject": "over", "sender": "mac"},
         ])
         self.assertEqual(ntfy.publish(again, path, opener=posted.append, cfg=cfg), 0)
         self.assertEqual(posted, [])
+        path.unlink(missing_ok=True)
+
+    def test_linux_can_be_turned_on_without_waking_ian(self):
+        path = Path("/tmp/baton-desk-ntfy-linux.json")
+        path.unlink(missing_ok=True)
+        posted = []
+
+        def opener(request, timeout=0):
+            posted.append(request.headers["Title"])
+
+            class Response:
+                def read(self):
+                    return b""
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return False
+
+            return Response()
+
+        cfg = {"BATON_DESK_NTFY_URL": "https://ntfy.example/topic"}
+        board = {
+            "stations": [
+                {"id": "linux", "holding": [{"thread": "a", "at": "t1", "subject": "pc", "sender": "mac"}]},
+                {"id": "mac", "holding": []},
+                {"id": "ian", "holding": [{"thread": "b", "at": "t1", "subject": "yours", "sender": "linux"}]},
+            ],
+        }
+        self.assertEqual(ntfy.publish(board, path, opener=opener, cfg=cfg), 0)
+        ntfy.set_enabled(path, "linux", True)
+        self.assertEqual(ntfy.publish(board, path, opener=opener, cfg=cfg), 0)
+        board["stations"][0]["holding"] = [
+            {"thread": "a", "at": "t2", "subject": "again", "sender": "mac"},
+        ]
+        self.assertEqual(ntfy.publish(board, path, opener=opener, cfg=cfg), 1)
+        self.assertEqual(posted, ["Baton on linux"])
+        path.unlink(missing_ok=True)
+
+    def test_legacy_ian_file_is_kept(self):
+        path = Path("/tmp/baton-desk-ntfy-legacy.json")
+        path.write_text('{"station": "ian", "holds": [["old", "t1"]]}\n', encoding="utf-8")
+        self.assertEqual(ntfy.load_seen(path, "ian"), {("old", "t1")})
+        self.assertTrue(ntfy.is_enabled(path, "ian"))
+        self.assertFalse(ntfy.is_enabled(path, "mac"))
         path.unlink(missing_ok=True)
 
     def test_fixture_and_missing_url_stay_quiet(self):

@@ -207,10 +207,18 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(raw.decode() or "{}")
         except json.JSONDecodeError:
             body = None
-        if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
-            self._send(400, json.dumps({"ok": False, "error": "Expected {\"enabled\": true or false}."}), "application/json")
+        station = body.get("station") if isinstance(body, dict) else None
+        if (
+            not isinstance(body, dict)
+            or station not in board.PEOPLE
+            or not isinstance(body.get("enabled"), bool)
+        ):
+            self._send(400, json.dumps({
+                "ok": False,
+                "error": "Expected {\"station\": \"linux|mac|ian\", \"enabled\": true or false}.",
+            }), "application/json")
             return
-        status = ntfy.set_enabled(ntfy.state_path(), body["enabled"])
+        status = ntfy.set_enabled(ntfy.state_path(), station, body["enabled"])
         with _lock:
             if _state["body"] is not None:
                 _state["body"]["ntfy"] = status
@@ -257,11 +265,13 @@ def main():
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Baton desk  http://{HOST}:{PORT}", flush=True)
     print("Loopback only. Ctrl-C stops it.", flush=True)
-    url, _token, station = ntfy.settings()
+    url, _token = ntfy.settings()
     if os.environ.get("BATON_DESK_FIXTURE") == "1":
         print("ntfy off (fixture)", flush=True)
     elif url:
-        print(f"ntfy on for station {station}", flush=True)
+        status = ntfy.public_status(ntfy.state_path())
+        on = [name for name, enabled in status["stations"].items() if enabled]
+        print(f"ntfy ready. On: {', '.join(on) or 'none'}", flush=True)
     else:
         print("ntfy off (BATON_DESK_NTFY_URL is not set)", flush=True)
     try:
