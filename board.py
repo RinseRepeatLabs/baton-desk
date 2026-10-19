@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 CONFIG = Path.home() / ".config" / "rrl-testers" / "env"
-PROTOCOL_FILE = Path("/home/ianm/Development/tester-pool/schema/coordinator-protocol-v1.json")
+PROTOCOL_FILE = Path.home() / "Development" / "tester-pool" / "schema" / "coordinator-protocol-v1.json"
 COLLECTION = "session_messages"
 PEOPLE = ("linux", "mac", "ian")
 
@@ -341,10 +341,14 @@ def _coerce(name, row):
 
 
 def fixture_board():
-    """Sample threads with no real relay text, for layout checks."""
+    """Sample threads with no real relay text, for layout checks.
+
+    lane-pass spans seconds, minutes, hours, and days so the handoff
+    strip has something to measure. The names and bodies are invented.
+    """
     now = "2026-10-18T15:04:00.000Z"
     earlier = "2026-10-18T14:40:00.000Z"
-    threads = shape_messages([
+    notes = [
         {
             "id": "a1", "thread": "release-1.1.4", "sender": "linux", "recipient": "mac",
             "at": earlier, "subject": "1.1.4 is on main, iOS lane is yours",
@@ -359,11 +363,48 @@ def fixture_board():
         },
         {
             "id": "b1", "thread": "timeflow-68", "sender": "mac", "recipient": "ian",
-            "at": "2026-10-17T18:12:00.000Z", "subject": "Need a look at the lock screen",
+            "at": "2026-10-17T18:12:00.000Z", "subject": "Need a look at the lock screen (#68)",
             "body": "Completed from the lock screen still needs a real phone.",
             "baton": "ian", "issue": "TimeFlow#68", "read_at": "2026-10-17T18:20:00.000Z",
         },
-    ])
+        {
+            "id": "c1", "thread": "lane-pass", "sender": "linux", "recipient": "mac",
+            "at": "2026-10-15T08:00:00.000Z", "subject": "Android lane is cut (#70)",
+            "body": "The tag is on main. See #70.\n\n1. **Android** artifact is on the release.\n2. Play upload was skipped.\n\nHolding the baton while it uploads. `lane` stays put.",
+            "baton": "linux", "issue": "TimeFlow#70", "read_at": "2026-10-15T08:05:00.000Z",
+        },
+        {
+            "id": "c2", "thread": "lane-pass", "sender": "linux", "recipient": "mac",
+            "at": "2026-10-17T08:00:00.000Z", "subject": "iOS upload started",
+            "body": "Android is done. The kitchen Mac has the lane.",
+            "baton": "mac", "issue": "TimeFlow#70", "read_at": "2026-10-17T08:00:20.000Z",
+        },
+        {
+            "id": "c3", "thread": "lane-pass", "sender": "mac", "recipient": "ian",
+            "at": "2026-10-17T08:00:25.000Z", "subject": "Need a build number",
+            "body": "Upload accepted. The store build number is the open question.",
+            "baton": "ian", "issue": "TimeFlow#70", "read_at": "2026-10-17T08:02:00.000Z",
+        },
+        {
+            "id": "c4", "thread": "lane-pass", "sender": "ian", "recipient": "linux",
+            "at": "2026-10-17T08:12:25.000Z", "subject": "Build number is 251",
+            "body": "Use 251 on the next upload.",
+            "baton": "linux", "issue": "TimeFlow#70", "read_at": "2026-10-17T08:13:00.000Z",
+        },
+        {
+            "id": "c5", "thread": "lane-pass", "sender": "linux", "recipient": "mac",
+            "at": "2026-10-18T04:12:25.000Z", "subject": "Lane is closed",
+            "body": "Both stores have the build. Setting the baton down.",
+            "baton": "none", "issue": "TimeFlow#70", "read_at": "2026-10-18T04:20:00.000Z",
+        },
+        {
+            "id": "c6", "thread": "lane-pass", "sender": "linux", "recipient": "mac",
+            "at": "2026-10-18T21:30:00.000Z", "subject": "No further handoff",
+            "body": "Still set down. Nothing new to pass.",
+            "baton": "none", "issue": "", "read_at": "2026-10-18T21:40:00.000Z",
+        },
+    ]
+    threads = shape_messages(notes)
     stations, settled = stations_from(threads)
     rules = load_protocol_rules()
     return {
@@ -373,7 +414,7 @@ def fixture_board():
         "me": "linux",
         "host": "fixture",
         "health": {"name": "rPocketBase", "version": "fixture"},
-        "message_count": 3,
+        "message_count": len(notes),
         "threads": threads,
         "stations": stations,
         "settled": settled,

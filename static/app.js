@@ -38,20 +38,256 @@ function ago(iso) {
   return seconds >= 0 ? `${unit[0]} ${word} ago` : `in ${unit[0]} ${word}`;
 }
 
-function when(iso) {
-  const then = Date.parse(iso);
+function when(iso, withSeconds) {
+  const then = typeof iso === "number" ? iso : Date.parse(iso);
   if (!then) return "";
-  return new Date(then).toLocaleString(undefined, {
+  const opts = {
     month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  };
+  if (withSeconds) opts.second = "2-digit";
+  return new Date(then).toLocaleString(undefined, opts);
+}
+
+function holdClock(hold) {
+  const precise = hold.end - hold.start < 3600000;
+  const start = when(hold.start, precise);
+  const end = hold.open ? "now" : when(hold.end, precise);
+  return { start, range: `${start} to ${end}` };
+}
+
+function span(ms) {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 1) return "under a second";
+  const unit = seconds < 60 ? [seconds, "second"]
+    : seconds < 3600 ? [Math.round(seconds / 60), "minute"]
+    : seconds < 86400 ? [Math.round(seconds / 3600), "hour"]
+    : [Math.round(seconds / 86400), "day"];
+  const word = unit[0] === 1 ? unit[1] : unit[1] + "s";
+  return `${unit[0]} ${word}`;
+}
+
+function holdsOf(messages) {
+  const holds = [];
+  messages.forEach((note, index) => {
+    const start = Date.parse(note.at);
+    if (!start) return;
+    const baton = note.baton || "none";
+    const last = holds[holds.length - 1];
+    if (last && last.baton === baton) {
+      last.count += 1;
+      return;
+    }
+    holds.push({
+      baton,
+      start,
+      index,
+      count: 1,
+      subject: (note.subject || "").trim(),
+    });
   });
+  const now = Date.now();
+  for (let i = 0; i < holds.length; i++) {
+    const next = holds[i + 1];
+    holds[i].end = next ? next.start : Math.max(now, holds[i].start);
+    holds[i].open = !next;
+  }
+  return holds;
+}
+
+function holdPhrase(hold) {
+  const dur = span(hold.end - hold.start);
+  if (hold.baton === "none") {
+    return hold.open ? `Nobody has held it for ${dur}` : `Nobody held it for ${dur}`;
+  }
+  const name = personName(hold.baton);
+  return hold.open ? `${name} has held it ${dur}` : `${name} held it ${dur}`;
+}
+
+function renderMarkdown(text) {
+  const root = el("div", "body");
+  const lines = String(text).replace(/\r\n/g, "\n").split("\n");
+  let i = 0;
+  const listMarker = (line) => {
+    const ordered = /^(\d+)\.\s+(.*)$/.exec(line);
+    if (ordered) return { kind: "ol", start: Number(ordered[1]), content: ordered[2] };
+    const bullet = /^[-*]\s+(.*)$/.exec(line);
+    if (bullet) return { kind: "ul", content: bullet[1] };
+    return null;
+  };
+  while (i < lines.length) {
+    if (!lines[i].trim()) { i++; continue; }
+    if (lines[i].startsWith("```")) {
+      const fence = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) fence.push(lines[i++]);
+      if (i < lines.length) i++;
+      const pre = el("pre");
+      const code = el("code");
+      appendIssueText(code, fence.join("\n"));
+      pre.append(code);
+      root.append(pre);
+      continue;
+    }
+    const marker = listMarker(lines[i]);
+    if (marker) {
+      const list = el(marker.kind);
+      if (marker.kind === "ol" && marker.start !== 1) list.start = marker.start;
+      while (i < lines.length) {
+        const item = listMarker(lines[i]);
+        if (!item || item.kind !== marker.kind) break;
+        let content = item.content;
+        i++;
+        while (i < lines.length && /^[ \t]{2,}\S/.test(lines[i])) {
+          content += "\n" + lines[i].trim();
+          i++;
+        }
+        const li = el("li");
+        appendInline(li, content);
+        list.append(li);
+      }
+      root.append(list);
+      continue;
+    }
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !listMarker(lines[i]) && !lines[i].startsWith("```")) {
+      para.push(lines[i]);
+      i++;
+    }
+    const p = el("p");
+    appendInline(p, para.join("\n"));
+    root.append(p);
+  }
+  return root;
+}
+
+function appendInline(parent, text) {
+  let i = 0;
+  while (i < text.length) {
+    if (text.startsWith("**", i) || text.startsWith("__", i)) {
+      const marker = text.slice(i, i + 2);
+      const end = text.indexOf(marker, i + 2);
+      if (end > i + 2) {
+        const strong = el("strong");
+        appendInline(strong, text.slice(i + 2, end));
+        parent.append(strong);
+        i = end + 2;
+        continue;
+      }
+    }
+    if (text[i] === "`") {
+      const end = text.indexOf("`", i + 1);
+      if (end > i) {
+        const code = el("code");
+        appendIssueText(code, text.slice(i + 1, end));
+        parent.append(code);
+        i = end + 1;
+        continue;
+      }
+    }
+    if (text[i] === "[") {
+      const link = /^\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/.exec(text.slice(i));
+      if (link) {
+        const anchor = el("a", "", link[1]);
+        anchor.href = link[2];
+        anchor.target = "_blank";
+        anchor.rel = "noopener noreferrer";
+        parent.append(anchor);
+        i += link[0].length;
+        continue;
+      }
+    }
+    if ((text[i] === "*" && text[i + 1] !== "*") || (text[i] === "_" && text[i + 1] !== "_" && edgeBefore(text, i))) {
+      const end = closeSpan(text, i, text[i]);
+      if (end > i + 1 && (text[i] !== "_" || edgeAfter(text, end))) {
+        const em = el("em");
+        appendInline(em, text.slice(i + 1, end));
+        parent.append(em);
+        i = end + 1;
+        continue;
+      }
+    }
+    if (text[i] === "\n") {
+      parent.append(el("br"));
+      i++;
+      continue;
+    }
+    let j = i + 1;
+    while (j < text.length && !inlineToken(text, j)) j++;
+    appendIssueText(parent, text.slice(i, j));
+    i = j;
+  }
+}
+
+function closeSpan(text, open, mark) {
+  if (open + 1 >= text.length || /\s/.test(text[open + 1])) return -1;
+  for (let k = open + 1; k < text.length; k++) {
+    if (text[k] !== mark) continue;
+    if (text[k + 1] === mark) { k++; continue; }
+    if (k === open + 1 || /\s/.test(text[k - 1])) continue;
+    return k;
+  }
+  return -1;
+}
+
+function edgeBefore(text, index) {
+  return index === 0 || !/\w/.test(text[index - 1]);
+}
+
+function edgeAfter(text, index) {
+  return index + 1 >= text.length || !/\w/.test(text[index + 1]);
+}
+
+function inlineToken(text, index) {
+  const ch = text[index];
+  return ch === "\n" || ch === "`" || ch === "[" || ch === "*" || ch === "_";
+}
+
+function showNote(index) {
+  const scroller = $("transcript");
+  if (!scroller) return;
+  for (const node of scroller.querySelectorAll(".note.here")) node.classList.remove("here");
+  const note = document.getElementById("note-" + index);
+  if (!note) return;
+  note.classList.add("here");
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  note.scrollIntoView({ block: "nearest", inline: "nearest", behavior: reduce ? "auto" : "smooth" });
 }
 
 function issueHref(issue) {
-  const match = /^(?:([A-Za-z0-9_.-]+)\/)?([A-Za-z0-9_.-]+)#(\d+)$/.exec(issue || "");
+  const raw = String(issue || "").trim();
+  const normalized = /^#(\d+)$/.test(raw) ? `TimeFlow${raw}` : raw;
+  const match = /^(?:([A-Za-z0-9_.-]+)\/)?([A-Za-z0-9_.-]+)#(\d+)$/.exec(normalized);
   if (!match) return "";
   const owner = match[1] || (match[2] === "TimeFlow" ? "imcmurray" : "");
   if (!owner) return "";
   return `https://github.com/${owner}/${match[2]}/issues/${match[3]}`;
+}
+
+function issueLink(label) {
+  const href = issueHref(label);
+  if (!href) return null;
+  const link = el("a", "", label);
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.addEventListener("click", (event) => event.stopPropagation());
+  return link;
+}
+
+function appendIssueText(parent, text) {
+  const re = /(^|[^A-Za-z0-9_/])((?:[A-Za-z0-9_.-]+\/)?[A-Za-z0-9_.-]+#\d+|#\d+)/g;
+  let last = 0;
+  let match;
+  while ((match = re.exec(text))) {
+    const start = match.index + match[1].length;
+    if (start > last) parent.append(document.createTextNode(text.slice(last, start)));
+    const token = match[2];
+    const link = issueLink(token);
+    parent.append(link || document.createTextNode(token));
+    last = start + token.length;
+    re.lastIndex = last;
+  }
+  if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
 }
 
 function personName(id) {
@@ -105,14 +341,38 @@ function renderMeta() {
   if (board.fixture) meta.append("  ·  sample data");
 }
 
+function stationMood(station) {
+  if (station.holding.length) return { kind: "working", label: "Working" };
+  const ons = [];
+  for (const item of station.waiting) {
+    if (WHO[item.on] && item.on !== "none" && !ons.includes(item.on)) ons.push(item.on);
+  }
+  if (!ons.length) return { kind: "idle", label: "Idle" };
+  if (ons.length === 1) return { kind: "waiting", label: `Waiting on ${personName(ons[0])}` };
+  return { kind: "waiting", label: "Waiting" };
+}
+
+function blockingIds(stations) {
+  const ids = new Set();
+  for (const station of stations) {
+    for (const item of station.waiting) {
+      if (WHO[item.on] && item.on !== "none") ids.add(item.on);
+    }
+  }
+  return ids;
+}
+
 function renderStations() {
   const root = $("stations");
   clear(root);
   const board = state.board;
   if (!board || board.error) return;
+  const blocking = blockingIds(board.stations);
   for (const station of board.stations) {
     const who = WHO[station.id];
-    const card = el("section", "station");
+    const mood = stationMood(station);
+    const card = el("section", `station ${mood.kind}`);
+    if (blocking.has(station.id)) card.classList.add("blocking", `tint-${station.id}`);
     const head = el("div", "station-head");
     const seal = el("div", `seal ${station.id}`, String(station.holding.length));
     seal.title = `${station.holding.length} thread${station.holding.length === 1 ? "" : "s"} waiting on ${who.name}`;
@@ -122,7 +382,7 @@ function renderStations() {
       const here = el("span", "here", " · this machine");
       h.append(here);
     }
-    titles.append(h, el("p", "place", who.place));
+    titles.append(h, el("p", "place", who.place), el("p", "station-state", mood.label));
     head.append(seal, titles);
     card.append(head);
 
@@ -156,7 +416,9 @@ function pile(items, title, sub, empty) {
     const li = el("li");
     const button = el("button");
     button.type = "button";
-    button.append(el("span", "subject", title(item)));
+    const subject = el("span", "subject");
+    appendIssueText(subject, title(item));
+    button.append(subject);
     button.append(el("span", "when", sub(item)));
     button.addEventListener("click", () => selectThread(item.thread));
     li.append(button);
@@ -185,7 +447,10 @@ function renderThreads() {
     if (thread.unread.length) pip.textContent += " · unread";
     name.append(pip);
     button.append(name);
-    button.append(el("span", "sub", thread.subject || "No subject"));
+    const sub = el("span", "sub");
+    appendIssueText(sub, thread.subject || "No subject");
+    button.append(sub);
+    if (thread.at) button.append(el("span", "when", ago(thread.at)));
     button.addEventListener("click", () => selectThread(thread.name));
     root.append(button);
   }
@@ -209,60 +474,241 @@ function renderTranscript() {
     return;
   }
   if (thread.name !== state.selected) state.selected = thread.name;
-  root.append(el("h2", "", thread.name));
-  const stamp = el("p", `stamp ${thread.baton}`, `Waiting on ${personName(thread.baton)}`);
-  if (thread.baton === "none") stamp.textContent = "Settled. Nobody holds the baton.";
-  root.append(stamp);
-  const count = el("p", "quiet", `${thread.count} note${thread.count === 1 ? "" : "s"}`);
+  const holds = holdsOf(thread.messages);
+  const talk = el("div", "talk");
+  talk.append(el("h2", "", thread.name));
+  const stamp = el("p", `stamp ${thread.baton}`);
+  const current = holds.length ? holds[holds.length - 1] : null;
+  if (!current) {
+    stamp.textContent = thread.baton === "none"
+      ? "Settled. Nobody holds the baton."
+      : `Waiting on ${personName(thread.baton)}`;
+  } else if (thread.baton === "none") {
+    stamp.textContent = `Settled. ${holdPhrase(current)}.`;
+  } else {
+    stamp.textContent = `Waiting on ${personName(thread.baton)} · ${span(current.end - current.start)}`;
+  }
+  talk.append(stamp);
+  const count = el("p", "quiet countline", `${thread.count} note${thread.count === 1 ? "" : "s"}`);
   if (thread.issues.length) {
     count.append(" · ");
     thread.issues.forEach((issue, index) => {
       if (index) count.append(", ");
-      const href = issueHref(issue);
-      if (href) {
-        const link = el("a", "", issue);
-        link.href = href;
-        link.target = "_blank";
-        link.rel = "noopener";
-        count.append(link);
-      } else {
-        count.append(issue);
-      }
+      const link = issueLink(issue);
+      count.append(link || document.createTextNode(issue));
     });
   }
-  root.append(count);
+  talk.append(count);
 
+  const notes = el("div", "notes");
   let previous = "";
-  for (const note of thread.messages) {
+  thread.messages.forEach((note, index) => {
+    const baton = note.baton || "none";
     const block = el("article", `note ${note.sender || "none"}`);
+    block.id = "note-" + index;
     const head = el("header");
     head.append(el("span", "", `${personName(note.sender)} → ${personName(note.recipient)}`));
-    head.append(el("time", "", when(note.at)));
+    const time = el("time", "", when(note.at));
+    if (note.at) time.dateTime = note.at;
+    head.append(time);
     if (!note.read) head.append(el("span", "unread-tag", "Unread"));
     if (note.issue) {
-      const href = issueHref(note.issue);
-      if (href) {
-        const link = el("a", "", note.issue);
-        link.href = href;
-        link.target = "_blank";
-        link.rel = "noopener";
-        head.append(link);
-      } else {
-        head.append(el("span", "", note.issue));
-      }
+      const link = issueLink(note.issue);
+      head.append(link || el("span", "", note.issue));
     }
     block.append(head);
-    block.append(el("h3", "", note.subject || "No subject"));
-    if ((note.body || "").trim()) block.append(el("p", "body", note.body));
-    if (note.baton !== previous) {
-      const handed = note.baton === "none"
-        ? "Baton set down."
-        : `Baton to ${personName(note.baton)}.`;
+    const title = el("h3");
+    appendIssueText(title, note.subject || "No subject");
+    block.append(title);
+    if ((note.body || "").trim()) block.append(renderMarkdown(note.body));
+    if (baton !== previous) {
+      const started = holds.find((hold) => hold.index === index);
+      const prev = started ? holds[holds.indexOf(started) - 1] : null;
+      let handed = baton === "none" ? "Baton set down." : `Baton to ${personName(baton)}.`;
+      if (prev) handed += ` ${holdPhrase(prev)}.`;
       block.append(el("p", "handed", handed));
     }
-    previous = note.baton;
-    root.append(block);
+    previous = baton;
+    notes.append(block);
+  });
+  talk.append(notes, mountSplitter(talk), renderTimeline(holds));
+  root.append(talk);
+}
+
+const NOTES_WIDTH_KEY = "baton-desk-notes-width";
+
+function mountSplitter(talk) {
+  const splitter = el("div", "splitter");
+  splitter.tabIndex = 0;
+  splitter.setAttribute("role", "separator");
+  splitter.setAttribute("aria-orientation", "vertical");
+  splitter.setAttribute("aria-label", "Drag to resize the notes and the handoffs");
+  let saved = 0;
+  try { saved = Number(localStorage.getItem(NOTES_WIDTH_KEY)) || 0; } catch (_) { saved = 0; }
+  if (saved >= 240) talk.style.setProperty("--notes-width", saved + "px");
+
+  const remember = (width) => {
+    talk.style.setProperty("--notes-width", width + "px");
+    try { localStorage.setItem(NOTES_WIDTH_KEY, String(width)); } catch (_) {}
+  };
+  const clamp = (width) => {
+    const bounds = talk.getBoundingClientRect();
+    const max = Math.max(240, bounds.width - 232);
+    return Math.round(Math.min(Math.max(width, 240), max));
+  };
+  splitter.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    try { splitter.setPointerCapture(event.pointerId); } catch (_) {}
+    const origin = talk.getBoundingClientRect().left;
+    const move = (ev) => remember(clamp(ev.clientX - origin));
+    const up = () => {
+      splitter.removeEventListener("pointermove", move);
+      splitter.removeEventListener("pointerup", up);
+      splitter.removeEventListener("pointercancel", up);
+    };
+    splitter.addEventListener("pointermove", move);
+    splitter.addEventListener("pointerup", up);
+    splitter.addEventListener("pointercancel", up);
+  });
+  splitter.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 80 : 24;
+    const current = parseFloat(getComputedStyle(talk).gridTemplateColumns) || 0;
+    let width = current;
+    if (event.key === "ArrowLeft") width -= step;
+    else if (event.key === "ArrowRight") width += step;
+    else if (event.key === "Home") width = 240;
+    else if (event.key === "End") width = talk.getBoundingClientRect().width - 232;
+    else return;
+    event.preventDefault();
+    remember(clamp(width));
+  });
+  splitter.addEventListener("dblclick", () => {
+    talk.style.removeProperty("--notes-width");
+    try { localStorage.removeItem(NOTES_WIDTH_KEY); } catch (_) {}
+  });
+  return splitter;
+}
+
+function ageLabel(ms) {
+  if (ms < 1000) return "now";
+  return span(ms);
+}
+
+let laneObserver = null;
+
+function renderTimeline(holds) {
+  const aside = el("aside", "lane-time");
+  aside.setAttribute("aria-label", "Baton handoffs");
+  aside.append(el("p", "pile-label", "Handoffs"));
+  if (!holds.length) {
+    aside.append(el("p", "quiet", "These notes have no times."));
+    return aside;
   }
+  // Newest hold on the left, so "now" is the left edge and age grows to the right.
+  const recentFirst = holds.slice().reverse();
+  const scroll = el("div", "lane-scroll");
+  const badges = el("div", "lane-badges");
+  badges.setAttribute("role", "list");
+  const scale = el("div", "lane-scale");
+  const list = el("ol", "lane-list");
+  recentFirst.forEach((hold, index) => {
+    const phrase = holdPhrase(hold);
+    const clock = holdClock(hold);
+    const label = hold.subject ? `${phrase}. ${hold.subject}. ${clock.range}.` : `${phrase}. ${clock.range}.`;
+    const weight = Math.max(1, Math.round(Math.sqrt(Math.max(hold.end - hold.start, 1))));
+    const who = hold.baton === "none" ? "Set down" : personName(hold.baton);
+    const seg = el("button", `seg lane-slot ${hold.baton}${hold.open ? " open" : ""}`);
+    seg.type = "button";
+    seg.dataset.weight = String(weight);
+    seg.title = label;
+    seg.setAttribute("aria-label", label);
+    seg.append(el("span", "seg-dur", span(hold.end - hold.start)));
+    seg.append(el("span", "seg-who", who));
+    seg.addEventListener("click", () => showNote(hold.index));
+    badges.append(seg);
+
+    const newerEdge = Math.max(0, Date.now() - hold.end);
+    const tick = el("div", "lane-tick lane-slot");
+    tick.dataset.weight = String(weight);
+    tick.dataset.age = String(Math.round(newerEdge));
+    const mark = el("span", "", ageLabel(newerEdge));
+    mark.title = hold.open ? "now" : when(hold.end);
+    tick.append(mark);
+    if (index === recentFirst.length - 1) {
+      const oldest = ageLabel(Date.now() - hold.start);
+      const end = el("span", "lane-age-end", oldest);
+      end.title = when(hold.start);
+      tick.append(end);
+      tick.classList.add("end");
+      tick.dataset.endAge = String(Math.round(Date.now() - hold.start));
+    }
+    scale.append(tick);
+
+    const row = el("li");
+    const jump = el("button");
+    jump.type = "button";
+    jump.title = label;
+    const pip = el("span", `mark ${hold.baton}`);
+    pip.setAttribute("aria-hidden", "true");
+    const subject = el("span", "lane-subject");
+    appendIssueText(subject, hold.subject || "");
+    jump.append(pip, el("span", "lane-phrase", phrase), subject, el("span", "lane-when", clock.start));
+    jump.addEventListener("click", () => showNote(hold.index));
+    row.append(jump);
+    list.append(row);
+  });
+  scroll.append(badges, scale);
+
+  const scrub = el("label", "lane-scrub");
+  scrub.append(el("span", "visually-hidden", "Drag through the handoffs. Now is on the left."));
+  const input = el("input");
+  input.type = "range";
+  input.min = "0";
+  input.max = "0";
+  input.value = "0";
+  input.setAttribute("aria-label", "Drag through the handoffs. Now is on the left.");
+  scrub.append(input);
+
+  const sync = () => {
+    const min = 112;
+    const gap = 3;
+    const slots = [...badges.querySelectorAll(".seg")];
+    const ticks = [...scale.querySelectorAll(".lane-tick")];
+    const count = slots.length;
+    const basis = count * min + Math.max(0, count - 1) * gap;
+    const view = scroll.clientWidth;
+    const extra = Math.max(0, view - basis);
+    const weightSum = slots.reduce((sum, slot) => sum + Number(slot.dataset.weight), 0) || 1;
+    slots.forEach((slot, index) => {
+      const width = min + extra * (Number(slot.dataset.weight) / weightSum);
+      const px = width + "px";
+      slot.style.flex = "none";
+      slot.style.width = px;
+      if (ticks[index]) {
+        ticks[index].style.flex = "none";
+        ticks[index].style.width = px;
+      }
+    });
+    const track = basis + extra;
+    badges.style.width = track + "px";
+    scale.style.width = track + "px";
+    const max = Math.max(0, Math.round(scroll.scrollWidth - scroll.clientWidth));
+    input.max = String(max);
+    input.disabled = max < 1;
+    if (document.activeElement !== input) input.value = String(Math.round(scroll.scrollLeft));
+  };
+  input.addEventListener("input", () => {
+    scroll.scrollLeft = Number(input.value);
+  });
+  scroll.addEventListener("scroll", sync);
+  if (laneObserver) laneObserver.disconnect();
+  laneObserver = new ResizeObserver(sync);
+  laneObserver.observe(scroll);
+  requestAnimationFrame(sync);
+
+  aside.append(scroll, scrub, list);
+  return aside;
 }
 
 function bead(on, bad) {
@@ -377,6 +823,12 @@ function planCard(plan) {
 function render() {
   renderMeta();
   renderStations();
+  if (state.board && !state.board.error) {
+    const threads = filteredThreads();
+    if (!threads.some((thread) => thread.name === state.selected)) {
+      state.selected = threads.length ? threads[0].name : "";
+    }
+  }
   renderThreads();
   renderTranscript();
   renderProtocol();
