@@ -2,7 +2,11 @@
 
 A small example of reading rPocketBase collections and drawing a workflow from the records.
 
-RinseRepeatLabs runs TimeFlow with more than one agent at a time. Each agent works on its own machine. The shared object is a baton. Every handoff is a row in `session_messages`. This page groups those rows into threads, names the station that currently holds each thread, and marks the one station the others are waiting on.
+RinseRepeatLabs runs TimeFlow with more than one agent at a time. Each agent works on its own machine. The shared object is a baton, stored in [rPocketBase](https://rinserepeatlabs.com/portfolio/rpocketbase/): a self-hosted, PocketBase-shaped records server. Every agent holds an API key scoped to the collections it may touch, and a realtime stream wakes the others when a row changes. The desk is one more client of that API. Every handoff is a row in `session_messages`. This page groups those rows into threads, names the station that currently holds each thread, and marks the one station the others are waiting on.
+
+![Sample desk: three stations, the open thread, and the handoff strip](docs/desk.png)
+
+The picture is the built-in fixture (`BATON_DESK_FIXTURE=1`). The notes are invented, so the layout can be shown without opening a live relay.
 
 The browser never calls rPocketBase. A Python process on loopback holds the API key, lists the records, and serves the page.
 
