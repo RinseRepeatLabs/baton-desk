@@ -1,62 +1,193 @@
 # Baton desk
 
-RinseRepeatLabs builds TimeFlow with more than one agent at a time. A session on the Linux PC, a session on the kitchen Mac, and Ian each take a turn on their own machine. The thing they share is a baton. The notes of that handoff are records in rPocketBase, the lab's records server.
+A small example of reading rPocketBase collections and drawing a workflow from the records.
 
-Baton desk is the page that makes the coordination visible. It shows which agent is working, which agents are waiting, and which station is holding everyone else up.
+RinseRepeatLabs runs TimeFlow with more than one agent at a time. Each agent works on its own machine. The shared object is a baton. Every handoff is a row in `session_messages`. This page groups those rows into threads, names the station that currently holds each thread, and marks the one station the others are waiting on.
 
-## What the baton is
+The browser never calls rPocketBase. A Python process on loopback holds the API key, lists the records, and serves the page.
 
-A thread is one conversation. The `baton` on its latest note names who the work waits on: `linux`, `mac`, `ian`, or `none`.
+## The workflow, read off one field
 
-That one field is the whole coordination.
+A thread is every record that shares a `thread` value, ordered by `at`. The `baton` on the **latest** record is who the work waits on.
 
-- **Working.** The station whose name matches the baton holds the thread.
-- **Waiting.** A station that took part, while the baton sits with someone else.
-- **The hold-up.** The station other people are waiting on. The desk paints that station's color on the left edge only: Linux green, Mac blue, Ian gold. Every other station stays a plain panel.
-- **Settled.** The baton is `none`. The thread is finished passing.
+| Latest `baton` | What the desk draws |
+|---|---|
+| A station id | That station is **working** on the thread. |
+| Some other station, and this station appears as `sender` or `recipient` | This station is **waiting**. |
+| A station id that shows up in another station's waiting list | That station is the **hold-up**. Its color is painted on the left edge only. |
+| `none` | The thread is **settled**. The baton has been set down. |
 
-rPocketBase already stored the notes. The desk reads those records and draws the process, so the lab can see the development as a handoff across agents rather than three separate inboxes.
+Station ids in this workflow are `linux`, `mac`, and `ian`. Their edge colors are green, blue, and gold. A station with no one waiting on it stays a plain panel.
 
-## What the page shows
+## `session_messages`
 
-### Stations
+One row is one note. The collection is a normal rPocketBase base collection. List, view, create, and update require an API key (`@request.auth.collectionName = "_api_keys"`). Delete is closed.
 
-Linux, Mac, and Ian sit side by side. Each card lists the threads that station holds and the threads it is waiting on. The colored left edge appears only on the station that is causing the wait.
+| Field | Type | Required | Role in the workflow |
+|---|---|---|---|
+| `thread` | text | yes | Groups notes into one conversation. Presentable. |
+| `sender` | text | yes | Station that wrote the note. |
+| `recipient` | text | yes | Station the note was handed to. |
+| `at` | date | yes | When the note was written. This is the sort key, not `created`. |
+| `subject` | text | yes | Title shown on the station card, the thread list, and the handoff row. |
+| `body` | text | | Markdown. Rendered in the thread. |
+| `baton` | select | yes | `linux`, `mac`, `ian`, or `none`. The latest value is the workflow state. |
+| `issue` | text | | `TimeFlow#61`, `#61`, or `owner/repo#61`. The page turns it into a GitHub issue link. |
+| `read_at` | date | | Empty means the recipient has not read it. |
 
-### The thread
+rPocketBase also returns the usual record envelope (`id`, and the list wrapper below). The desk uses `id` only to tell notes apart.
 
-Notes run oldest first. Subjects and bodies render as markdown. An issue number is a link: `#61` and `TimeFlow#61` open the TimeFlow issue, and `owner/repo#61` opens that repository. Clicking the number leaves the selected thread alone.
+Indexes:
 
-### The handoff
-
-Beside the notes, a strip starts at now on the left. Each block is one hold, in that agent's color, labeled with how long they held it: seconds, minutes, hours, or days. Under the blocks, a line counts how long ago that moment was, and the value grows as you move right. Drag the slider to pan back through older holds. Each row under a block includes the note's title. Drag the handle between the notes and the strip to give either side more room. Each thread in the list shows how long ago its latest note was.
-
-### Protocol v1
-
-Under the threads, four lanes: Android, Web, Linux, and iOS. A build moves from `requested` through `ready`, with `failed` and `blocked` beside the main flow. The desk draws those lanes from `build_requests` and `round_plans` on the same rPocketBase server. While those collections are absent, the lanes stay empty. When the protocol records are imported, this same page fills them.
-
-## How it uses rPocketBase
-
-The desk calls the records API:
-
+```sql
+CREATE INDEX idx_session_messages_thread ON session_messages (thread, at);
+CREATE INDEX idx_session_messages_inbox ON session_messages (recipient, read_at);
 ```
-GET /api/collections/session_messages/records
+
+The first index is the thread walk. The second is the unread inbox.
+
+A row looks like this. The text is invented:
+
+```json
+{
+  "id": "a1b2c3d4e5f6g7h",
+  "thread": "release-1.1.4",
+  "sender": "linux",
+  "recipient": "mac",
+  "at": "2026-10-18 14:40:00.000Z",
+  "subject": "iOS lane is yours",
+  "body": "The tag is cut. The iOS lane can upload.",
+  "baton": "mac",
+  "issue": "TimeFlow#70",
+  "read_at": ""
+}
 ```
 
-That is the same data the admin UI shows. A small Python process on the machine reads it and serves the page.
+Dates come back with a space between the day and the time (`2026-10-18 14:40:00.000Z`). The desk rewrites that space to `T` before it parses them.
 
-- The API key stays in that process. The browser talks only to `127.0.0.1`.
-- TLS is verified with the CA file named by `RPB_CA_FILE`. The desk refuses to skip certificate checks.
-- A realtime ticket, then an SSE stream, wakes the page when a note arrives. The server also polls about every 8 seconds, and the page polls about every 10. If the stream drops, the next poll still paints.
-- The first response includes the current board, so the page draws without a second round trip.
+## The calls
 
-Notes can carry tester names, beta codes, and device rows. The server binds to loopback because of that. The source is public. A running desk stays on the machine that holds the key.
+Health, with no key:
 
-The page uses a compact dark theme, and a light theme when the system prefers light. It follows `prefers-color-scheme` and uses the system UI font.
+```http
+GET /api/health
+```
+
+The page shows `displayName` and `version` from `data` when they are present.
+
+The notes, one page at a time:
+
+```http
+GET /api/collections/session_messages/records?page=1&perPage=200&sort=at
+Authorization: Bearer <RELAY_KEY or RPB_API_KEY>
+```
+
+`sort=at` walks each thread from oldest note to newest, so the last row is the current baton. The key in the env file is the raw secret. The desk adds the `Bearer ` prefix when the value does not already have it.
+
+The list envelope is the usual one:
+
+```json
+{
+  "page": 1,
+  "perPage": 200,
+  "totalItems": 42,
+  "totalPages": 1,
+  "items": []
+}
+```
+
+The desk follows `totalPages` until the collection is exhausted. It then groups `items` by `thread` and sorts the threads by the latest `at`, newest first.
+
+From that grouping it builds three stations:
+
+- **Holding** — `thread.baton` equals that station id.
+- **Waiting** — the station is in `sender` or `recipient`, and `thread.baton` is a different station (not `none`).
+- **Settled** — `thread.baton` is `none` or empty. These threads leave the station cards and show under the Settled filter.
+
+Unread is every message whose `read_at` is empty.
+
+## Realtime is only a wake-up
+
+The page does not treat the event stream as the record. A change on the collection wakes a fresh list.
+
+```http
+POST /api/realtime/ticket
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{"collections": "session_messages"}
+```
+
+The response carries a short-lived `ticket`. The desk opens:
+
+```http
+GET /api/realtime?ticket=<ticket>&collections=session_messages
+```
+
+A ticket lasts about three minutes. The desk closes the stream around 150 seconds and asks for another. An SSE line that is an actual change (not the hello, and not the desk's own refresh) calls the list again.
+
+The server also lists on its own about every 8 seconds, and the page polls about every 10. If the stream drops, the next poll still paints. The first HTML response already contains the current board, so the page draws before that poll.
+
+TLS uses the CA file in `RPB_CA_FILE`. A missing CA is a hard error. The desk will not turn verification off.
+
+## Two more collections, same pattern
+
+Coordinator protocol v1 is two more collections on the same server. The desk lists them the same way, with `sort=-updated`, and draws one lane per platform. A `404` means that collection is not imported yet. The lanes stay on the page, empty, and fill in when the records appear.
+
+```http
+GET /api/collections/build_requests/records?page=1&perPage=200&sort=-updated
+GET /api/collections/round_plans/records?page=1&perPage=200&sort=-updated
+```
+
+`build_requests` is tried with the release key, then the round key, then the records key, then the relay key. `401` and `403` move on to the next key. Any other error stops.
+
+### `build_requests`
+
+One row is one build on one lane. Unique on `app_name`, `version`, `lane`, `git_sha`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `protocol_version` | text | Required. |
+| `app_name`, `version`, `git_sha`, `git_ref` | text | `git_sha` is the full 40-character id. |
+| `lane` | select | `android`, `ios`, `web`, `linux`. |
+| `owner` | select | `linux`, `mac`, or `ci`. The station that owns the lane. |
+| `baton` | select | Same four values as `session_messages`. Can move while `status` stays put. |
+| `status` | select | `requested` → `accepted` → `building` → `uploaded` → `processing` → `ready`, plus `failed` and `blocked`. |
+| `blocked_from` | select | The status to resume from. Set with `blocked`, cleared when the row leaves `blocked`. |
+| `store_build`, `artifact`, `issue`, `thread`, `detail` | text | `artifact` is a path or URL, not the file. |
+| `beta` | bool | |
+| `expires_at`, `requested_at`, `updated_at` | date | The lane sort uses `updated_at`. |
+
+Lanes and their owners: Android, Web, and Linux are `linux`. iOS is `mac`.
+
+### `round_plans`
+
+One row is one ongoing test, not one build.
+
+| Field | Type | Notes |
+|---|---|---|
+| `protocol_version`, `name`, `app_name` | text | All required. |
+| `lane` | select | `android`, `ios`, `web`, `linux`. |
+| `distribution` | select | `TestFlight`, `Google Play`, `Direct download`, `Web`. |
+| `seed_path` | text | Required. |
+| `beta_only`, `auto_draft`, `allow_open_update` | bool | |
+| `status` | select | `idle`, `waiting`, `drafted`, `needs_review`, `open`, `closed`. |
+| `last_version`, `last_store_build`, `detail` | text | |
+
+## What the page adds on top of the records
+
+The records are the workflow. The page is the reading of them.
+
+- **Stations.** Three cards. The left edge is colored only on the station other stations are waiting on.
+- **The thread.** Notes oldest first. `body` renders as markdown. Issue numbers become links. `#61` and `TimeFlow#61` open the TimeFlow issue. `owner/repo#61` opens that repository. Clicking the link leaves the selected thread alone.
+- **The handoff.** Beside the notes, a strip starts at now on the left. Each block is one run of the same `baton`, labeled with how long that station held it. Under the blocks, a line counts how long ago that moment was, growing toward the right. The slider pans. Each row includes the `subject` of the note that started the hold. The handle between the notes and the strip is saved in the browser.
+- **The lanes.** `build_requests` grouped by `lane`, newest `updated_at` first, laid on the status flow above.
+
+The theme is compact and dark, and light when the system prefers light.
 
 ## Run
 
-Python 3 is enough. The server uses the standard library only.
+Python 3, standard library only.
 
 ```bash
 python3 server.py
@@ -64,14 +195,15 @@ python3 server.py
 
 Open http://127.0.0.1:8734. Ctrl-C stops it.
 
-Configuration is the env file the relay already uses, `~/.config/rrl-testers/env`. The same names work as environment variables and override the file.
+Configuration is `~/.config/rrl-testers/env`, the same file the relay uses. The same names in the environment override the file.
 
 | Variable | Used for |
 |---|---|
 | `RPB_URL` | Base URL of the records API. |
 | `RPB_CA_FILE` | CA file for that URL. |
-| `RELAY_KEY` or `RPB_API_KEY` | Read `session_messages`. |
-| `RELEASE_COORD_KEY`, `ROUND_COORD_KEY` | Read `build_requests` and `round_plans`, once those keys exist. |
+| `RELAY_KEY` or `RPB_API_KEY` | Read `session_messages`, and wake on its realtime stream. |
+| `RELEASE_COORD_KEY` | Read `build_requests`. |
+| `ROUND_COORD_KEY` | Read `round_plans`, and `build_requests` when the release key is absent. |
 | `RELAY_ME` | Which station is this machine: `linux`, `mac`, or `ian`. |
 
 `BATON_DESK_PORT` changes the port. The default is `8734`.
@@ -80,7 +212,9 @@ Configuration is the env file the relay already uses, `~/.config/rrl-testers/env
 BATON_DESK_FIXTURE=1 python3 server.py
 ```
 
-The fixture serves made-up threads and does not call rPocketBase. Use it to look at the layout.
+The fixture serves invented threads and skips the network. Use it to look at the layout.
+
+`body` can hold private tester data, beta codes, and device rows. That is why the server binds to `127.0.0.1`. The source is public. A running desk stays on the machine that holds the key.
 
 ## Checks
 
