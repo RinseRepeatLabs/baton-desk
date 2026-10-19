@@ -189,6 +189,16 @@ The records are the workflow. The page is the reading of them.
 
 The theme is compact and dark, and light when the system prefers light.
 
+## A push when the baton reaches `ian`
+
+Set `BATON_DESK_NTFY_URL` to an [ntfy](https://ntfy.sh) topic and the desk publishes when a thread lands on that station. The default station is `ian`. `BATON_DESK_NTFY_STATION` points the same pusher at another id.
+
+The message is the subject, the thread name, and who handed it over. The note body stays on the machine. The topic URL is the secret, the same way an unlisted ntfy topic already works. `BATON_DESK_NTFY_TOKEN` sends a bearer token when the topic is reserved.
+
+The first successful read is a baseline and stays quiet, including across restarts. A later note, or a thread that was not on the station last time, sends one message with priority 4 and the tag `baton`. The fixture never pushes. A failed push is one line on the server log. The page keeps polling.
+
+That station's card has an ntfy badge. It reads **ntfy on** or **ntfy off**, and clicking it switches the pusher. While it is off, holds are still remembered, so turning it back on does not replay what you missed. The topic URL stays on the server.
+
 ## Run
 
 Python 3, standard library only.
@@ -209,6 +219,9 @@ Configuration is `~/.config/rrl-testers/env`, the same file the relay uses. The 
 | `RELEASE_COORD_KEY` | Read `build_requests`. |
 | `ROUND_COORD_KEY` | Read `round_plans`, and `build_requests` when the release key is absent. |
 | `RELAY_ME` | Which station is this machine: `linux`, `mac`, or `ian`. |
+| `BATON_DESK_NTFY_URL` | ntfy topic URL. When set, a new hold on `ian` is pushed. |
+| `BATON_DESK_NTFY_TOKEN` | Optional bearer token for a reserved topic. |
+| `BATON_DESK_NTFY_STATION` | Station that receives the push. Default `ian`. |
 
 `BATON_DESK_PORT` changes the port. The default is `8734`.
 

@@ -24,6 +24,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import board
+import ntfy
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -47,6 +48,8 @@ def refresh():
     except Exception as exc:  # noqa: BLE001 — surface a sentence, never a secret
         payload = None
         err = str(exc)
+    if payload is not None:
+        payload["ntfy"] = ntfy.public_status(ntfy.state_path())
     with _lock:
         changed = False
         if payload is None:
@@ -68,6 +71,11 @@ def refresh():
                 listener.put_nowait(b"event: board\ndata: refresh\n\n")
             except Exception:
                 pass
+    if payload is not None:
+        try:
+            ntfy.publish(payload, ntfy.state_path())
+        except Exception as err:  # noqa: BLE001 — a push must not stop the poll
+            print(f"ntfy push failed: {err.__class__.__name__}", flush=True)
     return changed
 
 
@@ -185,6 +193,36 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send(404, "Not found", "text/plain; charset=utf-8")
 
+    def do_POST(self):
+        path = urlparse(self.path).path
+        if path != "/api/ntfy":
+            self._send(404, "Not found", "text/plain; charset=utf-8")
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > 1000:
+            self._send(400, json.dumps({"ok": False, "error": "Expected a small JSON body."}), "application/json")
+            return
+        raw = self.rfile.read(length) if length else b""
+        try:
+            body = json.loads(raw.decode() or "{}")
+        except json.JSONDecodeError:
+            body = None
+        if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
+            self._send(400, json.dumps({"ok": False, "error": "Expected {\"enabled\": true or false}."}), "application/json")
+            return
+        status = ntfy.set_enabled(ntfy.state_path(), body["enabled"])
+        with _lock:
+            if _state["body"] is not None:
+                _state["body"]["ntfy"] = status
+                _state["etag"] = _etag(_state["body"])
+            listeners = list(_listeners)
+        for listener in listeners:
+            try:
+                listener.put_nowait(b"event: board\ndata: refresh\n\n")
+            except Exception:
+                pass
+        self._send(200, json.dumps({"ok": True, "ntfy": status}), "application/json")
+
     def _stream(self):
         q = queue.Queue()
         with _lock:
@@ -219,6 +257,13 @@ def main():
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Baton desk  http://{HOST}:{PORT}", flush=True)
     print("Loopback only. Ctrl-C stops it.", flush=True)
+    url, _token, station = ntfy.settings()
+    if os.environ.get("BATON_DESK_FIXTURE") == "1":
+        print("ntfy off (fixture)", flush=True)
+    elif url:
+        print(f"ntfy on for station {station}", flush=True)
+    else:
+        print("ntfy off (BATON_DESK_NTFY_URL is not set)", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

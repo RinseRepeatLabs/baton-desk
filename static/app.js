@@ -384,6 +384,8 @@ function renderStations() {
     }
     titles.append(h, el("p", "place", who.place), el("p", "station-state", mood.label));
     head.append(seal, titles);
+    const badge = ntfyBadge(station.id);
+    if (badge) head.append(badge);
     card.append(head);
 
     card.append(el("p", "pile-label", "Has the baton"));
@@ -405,6 +407,43 @@ function renderStations() {
     }
     root.append(card);
   }
+}
+
+function ntfyBadge(stationId) {
+  const info = state.board && state.board.ntfy;
+  if (!info || info.station !== stationId) return null;
+  const button = el("button", `ntfy-badge ${info.enabled ? "on" : "off"}`, info.enabled ? "ntfy on" : "ntfy off");
+  button.type = "button";
+  button.setAttribute("aria-pressed", info.enabled ? "true" : "false");
+  if (!info.configured) {
+    button.disabled = true;
+    button.title = "Set BATON_DESK_NTFY_URL to enable notifications.";
+    return button;
+  }
+  button.title = info.enabled ? "Notifications are on. Click to turn them off." : "Notifications are off. Click to turn them on.";
+  button.addEventListener("click", () => toggleNtfy(!info.enabled));
+  return button;
+}
+
+async function toggleNtfy(enabled) {
+  const info = state.board && state.board.ntfy;
+  if (!info || !info.configured || info.enabled === enabled) return;
+  const previous = info.enabled;
+  info.enabled = enabled;
+  renderStations();
+  try {
+    const res = await fetch("/api/ntfy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || "Could not change notifications.");
+    if (state.board) state.board.ntfy = body.ntfy;
+  } catch (err) {
+    if (state.board && state.board.ntfy) state.board.ntfy.enabled = previous;
+  }
+  renderStations();
 }
 
 function pile(items, title, sub, empty) {
@@ -841,9 +880,12 @@ async function load() {
     if (!res.ok) throw new Error(body.error || "The board could not read the relay.");
     const previous = state.selected;
     const same = state.board && !state.board.error && state.board.fetched_at === body.fetched_at;
+    const ntfyWas = state.board && state.board.ntfy ? !!state.board.ntfy.enabled : null;
     state.board = body;
     if (same) {
       renderMeta();
+      const ntfyNow = body.ntfy ? !!body.ntfy.enabled : null;
+      if (ntfyNow !== ntfyWas) renderStations();
       return;
     }
     if (!previous && location.hash) {
