@@ -83,6 +83,7 @@ function holdsOf(messages) {
       index,
       count: 1,
       subject: (note.subject || "").trim(),
+      repo: repoOf(note.issue),
     });
   });
   const now = Date.now();
@@ -103,7 +104,7 @@ function holdPhrase(hold) {
   return hold.open ? `${name} has held it ${dur}` : `${name} held it ${dur}`;
 }
 
-function renderMarkdown(text) {
+function renderMarkdown(text, repo) {
   const root = el("div", "body");
   const lines = String(text).replace(/\r\n/g, "\n").split("\n");
   let i = 0;
@@ -123,7 +124,7 @@ function renderMarkdown(text) {
       if (i < lines.length) i++;
       const pre = el("pre");
       const code = el("code");
-      appendIssueText(code, fence.join("\n"));
+      appendIssueText(code, fence.join("\n"), repo);
       pre.append(code);
       root.append(pre);
       continue;
@@ -142,7 +143,7 @@ function renderMarkdown(text) {
           i++;
         }
         const li = el("li");
-        appendInline(li, content);
+        appendInline(li, content, repo);
         list.append(li);
       }
       root.append(list);
@@ -154,13 +155,13 @@ function renderMarkdown(text) {
       i++;
     }
     const p = el("p");
-    appendInline(p, para.join("\n"));
+    appendInline(p, para.join("\n"), repo);
     root.append(p);
   }
   return root;
 }
 
-function appendInline(parent, text) {
+function appendInline(parent, text, repo) {
   let i = 0;
   while (i < text.length) {
     if (text.startsWith("**", i) || text.startsWith("__", i)) {
@@ -168,7 +169,7 @@ function appendInline(parent, text) {
       const end = text.indexOf(marker, i + 2);
       if (end > i + 2) {
         const strong = el("strong");
-        appendInline(strong, text.slice(i + 2, end));
+        appendInline(strong, text.slice(i + 2, end), repo);
         parent.append(strong);
         i = end + 2;
         continue;
@@ -178,7 +179,7 @@ function appendInline(parent, text) {
       const end = text.indexOf("`", i + 1);
       if (end > i) {
         const code = el("code");
-        appendIssueText(code, text.slice(i + 1, end));
+        appendIssueText(code, text.slice(i + 1, end), repo);
         parent.append(code);
         i = end + 1;
         continue;
@@ -200,7 +201,7 @@ function appendInline(parent, text) {
       const end = closeSpan(text, i, text[i]);
       if (end > i + 1 && (text[i] !== "_" || edgeAfter(text, end))) {
         const em = el("em");
-        appendInline(em, text.slice(i + 1, end));
+        appendInline(em, text.slice(i + 1, end), repo);
         parent.append(em);
         i = end + 1;
         continue;
@@ -213,7 +214,7 @@ function appendInline(parent, text) {
     }
     let j = i + 1;
     while (j < text.length && !inlineToken(text, j)) j++;
-    appendIssueText(parent, text.slice(i, j));
+    appendIssueText(parent, text.slice(i, j), repo);
     i = j;
   }
 }
@@ -253,20 +254,42 @@ function showNote(index) {
   note.scrollIntoView({ block: "nearest", inline: "nearest", behavior: reduce ? "auto" : "smooth" });
 }
 
-function issueHref(issue) {
-  const raw = String(issue || "").trim();
-  const normalized = /^#(\d+)$/.test(raw) ? `TimeFlow${raw}` : raw;
-  const match = /^(?:([A-Za-z0-9_.-]+)\/)?([A-Za-z0-9_.-]+)#(\d+)$/.exec(normalized);
-  if (!match) return "";
-  const owner = match[1] || (match[2] === "TimeFlow" ? "imcmurray" : "");
-  if (!owner) return "";
-  return `https://github.com/${owner}/${match[2]}/issues/${match[3]}`;
+// Every repo the relay talks about is in the RinseRepeatLabs org except TimeFlow, so
+// `tester-pool#16`, `rPocketBase#12` or a repo added next month links without a list.
+const OWNERS = { TimeFlow: "imcmurray" };
+const DEFAULT_OWNER = "RinseRepeatLabs";
+const DEFAULT_REPO = "TimeFlow";
+
+// The repo a note's own `issue` field names, so a bare #16 in it means that repo's #16.
+function repoOf(issue) {
+  const match = /^(?:[A-Za-z0-9_.-]+\/)?([A-Za-z0-9_.-]+)#\d+$/.exec(String(issue || "").trim());
+  return match ? match[1] : "";
 }
 
-function issueLink(label) {
-  const href = issueHref(label);
+function parseIssue(issue, repo) {
+  const raw = String(issue || "").trim();
+  const normalized = /^#(\d+)$/.test(raw) ? `${repo || DEFAULT_REPO}${raw}` : raw;
+  const match = /^(?:([A-Za-z0-9_.-]+)\/)?([A-Za-z0-9_.-]+)#(\d+)$/.exec(normalized);
+  if (!match) return null;
+  return { owner: match[1] || OWNERS[match[2]] || DEFAULT_OWNER, repo: match[2], number: match[3] };
+}
+
+function issueHref(issue, repo) {
+  const parsed = parseIssue(issue, repo);
+  if (!parsed || !parsed.owner) return "";
+  return `https://github.com/${parsed.owner}/${parsed.repo}/issues/${parsed.number}`;
+}
+
+// Always shown as repo#N: two repos share the relay, and #16 alone doesn't say which.
+function issueLabel(issue, repo) {
+  const parsed = parseIssue(issue, repo);
+  return parsed ? `${parsed.repo}#${parsed.number}` : String(issue || "");
+}
+
+function issueLink(issue, repo) {
+  const href = issueHref(issue, repo);
   if (!href) return null;
-  const link = el("a", "", label);
+  const link = el("a", "", issueLabel(issue, repo));
   link.href = href;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
@@ -274,7 +297,7 @@ function issueLink(label) {
   return link;
 }
 
-function appendIssueText(parent, text) {
+function appendIssueText(parent, text, repo) {
   const re = /(^|[^A-Za-z0-9_/])((?:[A-Za-z0-9_.-]+\/)?[A-Za-z0-9_.-]+#\d+|#\d+)/g;
   let last = 0;
   let match;
@@ -282,12 +305,18 @@ function appendIssueText(parent, text) {
     const start = match.index + match[1].length;
     if (start > last) parent.append(document.createTextNode(text.slice(last, start)));
     const token = match[2];
-    const link = issueLink(token);
-    parent.append(link || document.createTextNode(token));
+    const link = issueLink(token, repo);
+    parent.append(link || document.createTextNode(issueLabel(token, repo)));
     last = start + token.length;
     re.lastIndex = last;
   }
   if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+}
+
+// The repo a thread's latest note was about, for the lines that show only its subject.
+function threadRepo(thread) {
+  const issues = (thread && thread.issues) || [];
+  return issues.length ? repoOf(issues[issues.length - 1]) : "";
 }
 
 function personName(id) {
@@ -480,7 +509,7 @@ function pile(items, title, sub, empty) {
     const button = el("button");
     button.type = "button";
     const subject = el("span", "subject");
-    appendIssueText(subject, title(item));
+    appendIssueText(subject, title(item), repoOf(item.issue));
     button.append(subject);
     button.append(el("span", "when", sub(item)));
     button.addEventListener("click", () => selectThread(item.thread));
@@ -511,7 +540,7 @@ function renderThreads() {
     name.append(pip);
     button.append(name);
     const sub = el("span", "sub");
-    appendIssueText(sub, thread.subject || "No subject");
+    appendIssueText(sub, thread.subject || "No subject", threadRepo(thread));
     button.append(sub);
     if (thread.at) button.append(el("span", "when", ago(thread.at)));
     button.addEventListener("click", () => selectThread(thread.name));
@@ -558,7 +587,7 @@ function renderTranscript() {
     thread.issues.forEach((issue, index) => {
       if (index) count.append(", ");
       const link = issueLink(issue);
-      count.append(link || document.createTextNode(issue));
+      count.append(link || document.createTextNode(issueLabel(issue)));
     });
   }
   talk.append(count);
@@ -575,15 +604,16 @@ function renderTranscript() {
     if (note.at) time.dateTime = note.at;
     head.append(time);
     if (!note.read) head.append(el("span", "unread-tag", "Unread"));
+    const repo = repoOf(note.issue) || threadRepo(thread);
     if (note.issue) {
       const link = issueLink(note.issue);
-      head.append(link || el("span", "", note.issue));
+      head.append(link || el("span", "", issueLabel(note.issue)));
     }
     block.append(head);
     const title = el("h3");
-    appendIssueText(title, note.subject || "No subject");
+    appendIssueText(title, note.subject || "No subject", repo);
     block.append(title);
-    if ((note.body || "").trim()) block.append(renderMarkdown(note.body));
+    if ((note.body || "").trim()) block.append(renderMarkdown(note.body, repo));
     if (baton !== previous) {
       const started = holds.find((hold) => hold.index === index);
       const prev = started ? holds[holds.indexOf(started) - 1] : null;
@@ -715,7 +745,7 @@ function renderTimeline(holds) {
     const pip = el("span", `mark ${hold.baton}`);
     pip.setAttribute("aria-hidden", "true");
     const subject = el("span", "lane-subject");
-    appendIssueText(subject, hold.subject || "");
+    appendIssueText(subject, hold.subject || "", hold.repo);
     jump.append(pip, el("span", "lane-phrase", phrase), subject, el("span", "lane-when", clock.start));
     jump.addEventListener("click", () => showNote(hold.index));
     row.append(jump);

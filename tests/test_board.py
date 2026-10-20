@@ -47,6 +47,18 @@ class ShapeTests(unittest.TestCase):
         self.assertEqual([row["thread"] for row in settled], ["c"])
         self.assertEqual(by_id["linux"]["holding"], [])
 
+    def test_station_rows_carry_the_threads_issue(self):
+        # The page resolves a bare #16 in a subject against this, so it must be the
+        # thread's own repo, not a guess.
+        threads = shape_messages([
+            msg(thread="a", baton="mac", issue="tester-pool#16", subject="#16 merged"),
+            msg(thread="b", baton="mac", issue="", at="2026-10-18 17:00:00.000Z"),
+        ])
+        stations, _ = stations_from(threads)
+        mac = {row["thread"]: row for row in {r["id"]: r for r in stations}["mac"]["holding"]}
+        self.assertEqual(mac["a"]["issue"], "tester-pool#16")
+        self.assertEqual(mac["b"]["issue"], "")
+
     def test_protocol_absent_still_draws_lanes(self):
         rules = {**BUILTIN_PROTOCOL, "from_file": False, "ready_means": {}}
         shaped = shape_protocol(rules, [], [], 404, 404)

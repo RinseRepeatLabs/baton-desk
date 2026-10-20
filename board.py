@@ -227,6 +227,7 @@ def stations_from(threads):
                 "at": thread["at"],
                 "unread": len(thread["unread"]),
                 "sender": thread["sender"],
+                "issue": thread["issues"][-1] if thread["issues"] else "",
             }
             involved = person in thread["people"] or thread["baton"] == person
             if thread["baton"] == person:
