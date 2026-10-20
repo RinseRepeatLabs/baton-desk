@@ -212,6 +212,12 @@ The desk is Ian's, so it can write as `ian`, and only as `ian`:
   thread's issue, so its `#numbers` keep their repo, and replying marks Ian's unread notes
   on the thread read.
 
+Each station card counts the notes addressed to it that it hasn't read: Ian's is what he
+still owes a look, and the Mac's says whether it has picked up what he sent. A click lists
+those threads. The index's **Unread** filter does the same for Ian, with his count on it.
+A thread he has just read stays in that view until he moves on, so it doesn't vanish
+from under him.
+
 A draft survives the page redrawing underneath it. The server checks every write itself:
 the ids, the recipient, the thread, the lengths. It accepts a POST only from its own page:
 the `Host` must be this desk, any `Origin` must be this desk, and the body must be JSON. A
