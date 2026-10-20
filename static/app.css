@@ -154,8 +154,11 @@ h1 {
 .pulse-dot.up { background: #34a853; box-shadow: 0 0 0 3px rgba(52, 168, 83, 0.18); }
 .pulse-dot.slow { background: var(--warn); }
 .pulse-dot.down { background: #ea4335; }
+.pulse-status { display: inline-flex; gap: 6px; align-items: baseline; }
 .pulse-state { color: var(--muted); }
 .pulse-version { color: var(--faint); }
+.pulse-host-name { color: var(--muted); font-weight: 600; }
+.pulse-host-ip { color: var(--faint); }
 .pulse-load { display: inline-flex; gap: 8px; }
 .pulse-label { color: var(--faint); }
 .pulse-rate { min-width: 3.2em; text-align: right; color: var(--muted); }

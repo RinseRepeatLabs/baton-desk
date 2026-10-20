@@ -160,6 +160,47 @@ def request_rates(samples, now, total, uptime=None):
     return {"per_minute": rates, "covered_secs": covered}
 
 
+_names = {}
+
+
+def host_name(host, cfg=None, ssh_config=None):
+    """What to call the machine rPocketBase runs on: RPB_HOST_NAME if set, else reverse
+    DNS, else the ~/.ssh/config alias whose HostName is this address (how this LAN names
+    dockge3). "" when nothing knows, and the page shows the address alone."""
+    cfg = cfg or {}
+    if cfg.get("RPB_HOST_NAME"):
+        return cfg["RPB_HOST_NAME"]
+    if not host:
+        return ""
+    if host in _names:
+        return _names[host]
+    name = ""
+    try:
+        import ipaddress
+        ipaddress.ip_address(host)
+        try:
+            import socket
+            found = socket.gethostbyaddr(host)[0]
+            name = found.split(".")[0] if found and found != host else ""
+        except (OSError, UnicodeError):
+            name = ""
+        if not name:
+            path = ssh_config or (Path.home() / ".ssh" / "config")
+            aliases = []
+            if path.is_file():
+                for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                    words = raw.split()
+                    if len(words) >= 2 and words[0].lower() == "host":
+                        aliases = [w for w in words[1:] if not any(ch in w for ch in "*?!")]
+                    elif len(words) >= 2 and words[0].lower() == "hostname" and words[1] == host and aliases:
+                        name = aliases[0]
+                        break
+    except ValueError:
+        name = ""            # already a name, not an address
+    _names[host] = name
+    return name
+
+
 def health(url, ca_file, token=""):
     """Up or down, the round trip, and request rates when the server reports a counter."""
     started = time.monotonic()
@@ -627,6 +668,7 @@ def build_board(cfg=None, fixture=False):
         "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "me": this_machine(cfg),
         "host": host,
+        "host_name": host_name(host, cfg),
         "health": info,
         "message_count": len(records),
         "threads": threads,

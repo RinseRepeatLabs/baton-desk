@@ -575,7 +575,6 @@ function renderMeta() {
   const bits = [
     `${board.message_count} note${board.message_count === 1 ? "" : "s"}`,
     `${board.threads.length} thread${board.threads.length === 1 ? "" : "s"}`,
-    board.host ? board.host : "",
   ].filter(Boolean);
   // The button sits before the "read … ago" text, whose width changes every refresh.
   const left = el("span", "meta-left");
@@ -586,21 +585,31 @@ function renderMeta() {
     const why = state.writing && !state.paused ? "paused while you write" : "paused";
     left.append(`  ·  ${why}${state.missed ? ", something new is waiting" : ""}`);
   }
-  meta.append(left, pulse(health));
+  meta.append(left, pulse(health, board));
 }
 
 // rPocketBase's pulse, read like top: up or down, the round trip, and requests per
 // minute over the last 1, 5 and 15 minutes.
-function pulse(health) {
+function pulse(health, board) {
   const box = el("span", "pulse");
-  // The server's name and version lead its pulse, on the right with the rest of it.
+  // Where the server is, then what it is, then how it's doing.
+  if (board && (board.host_name || board.host)) {
+    const where = el("span", "pulse-host");
+    if (board.host_name) where.append(el("span", "pulse-host-name", board.host_name));
+    if (board.host && board.host !== board.host_name) {
+      where.append(el("span", "pulse-host-ip", board.host_name ? ` ${board.host}` : board.host));
+    }
+    box.append(where);
+  }
   box.append(el("span", "pulse-version",
     health.version ? `${health.name || "rPocketBase"} ${health.version}` : (health.name || "rPocketBase")));
   const up = health.ok !== false;
   const slow = up && health.ping_ms >= 250;
   const dot = el("span", `pulse-dot ${!up ? "down" : slow ? "slow" : "up"}`);
   dot.setAttribute("aria-hidden", "true");
-  box.append(dot, el("span", "pulse-state", !up ? "down" : slow ? "slow" : "healthy"));
+  const status = el("span", "pulse-status");   // the dot and its word wrap as one
+  status.append(dot, el("span", "pulse-state", !up ? "down" : slow ? "slow" : "healthy"));
+  box.append(status);
   if (!up) {
     box.title = health.error || "rPocketBase didn't answer /api/health.";
     return box;

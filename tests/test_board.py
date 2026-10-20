@@ -6,7 +6,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from collections import deque
 
-from board import shape_messages, shape_protocol, stations_from, request_rates, BUILTIN_PROTOCOL
+import tempfile
+
+import board
+from board import shape_messages, shape_protocol, stations_from, request_rates, host_name, BUILTIN_PROTOCOL
 
 
 def msg(**kwargs):
@@ -94,6 +97,19 @@ class ShapeTests(unittest.TestCase):
         got = request_rates(samples, 128.0, 3, 2)
         self.assertEqual(len(samples), 1)
         self.assertIsNone(got["per_minute"]["1"])
+
+    def test_host_name_from_setting_or_ssh_alias(self):
+        board._names.clear()
+        with tempfile.TemporaryDirectory() as tmp:
+            ssh = Path(tmp) / "config"
+            ssh.write_text("Host *\n    ServerAliveInterval 30\n"
+                           "Host other\n    HostName 192.0.2.99\n"
+                           "Host dockge3 dockge3-lan\n    HostName 192.0.2.41\n    User ianm\n")
+            self.assertEqual(host_name("192.0.2.41", {}, ssh), "dockge3")
+            self.assertEqual(host_name("192.0.2.42", {}, ssh), "")          # nobody knows it
+            self.assertEqual(host_name("192.0.2.41", {"RPB_HOST_NAME": "db-box"}, ssh), "db-box")
+        self.assertEqual(host_name("dockge3.lan", {}), "")                    # already a name
+        board._names.clear()
 
     def test_protocol_absent_still_draws_lanes(self):
         rules = {**BUILTIN_PROTOCOL, "from_file": False, "ready_means": {}}
