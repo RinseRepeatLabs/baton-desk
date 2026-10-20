@@ -36,7 +36,7 @@ One row is one note. The collection is a normal rPocketBase base collection. Lis
 | `subject` | text | yes | Title shown on the station card, the thread list, and the handoff row. |
 | `body` | text | | Markdown. Rendered in the thread. |
 | `baton` | select | yes | `linux`, `mac`, `ian`, or `none`. The latest value is the workflow state. |
-| `issue` | text | | `TimeFlow#61`, `#61`, or `owner/repo#61`. The page turns it into a GitHub issue link. |
+| `issue` | text | | `TimeFlow#61`, `tester-pool#16`, or `owner/repo#61`. The page turns it into a GitHub issue link, always labeled `repo#N`. A bare `#16` in that note's subject or body means the same repo as this field; with no field, TimeFlow. Repos are under `RinseRepeatLabs` except TimeFlow (`imcmurray`). |
 | `read_at` | date | | Empty means the recipient has not read it. |
 
 rPocketBase also returns the usual record envelope (`id`, and the list wrapper below). The desk uses `id` only to tell notes apart.
