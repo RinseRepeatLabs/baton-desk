@@ -16,7 +16,7 @@ A thread is every record that shares a `thread` value, ordered by `at`. The `bat
 
 | Latest `baton` | What the desk draws |
 |---|---|
-| A station id | That station is **working** on the thread. |
+| A station id | That station is **working** on the thread. The card says which: the newest thread it holds, with a count of any others. The name opens the thread. |
 | Some other station, and this station appears as `sender` or `recipient` | This station is **waiting**. |
 | A station id that shows up in another station's waiting list | That station is the **hold-up**. Its color is painted on the left edge only. |
 | `none` | The thread is **settled**. The baton has been set down. |

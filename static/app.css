@@ -164,6 +164,8 @@ h1 {
 
 .ntfy-badge {
   margin-left: auto;
+  flex: none;
+  white-space: nowrap;
   align-self: flex-start;
   border: 1px solid var(--line);
   background: transparent;
@@ -231,6 +233,57 @@ h1 {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--fg);
+}
+
+.station-state {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35em;
+  min-width: 0;
+}
+
+.station-titles {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.station-label {
+  flex: none;
+  white-space: nowrap;
+}
+
+.station-thread {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.station-thread:hover,
+.station-thread:focus-visible {
+  text-decoration-style: solid;
+}
+
+.station-more {
+  flex: none;
+  white-space: nowrap;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--faint);
 }
 
 .station.idle .station-state {
