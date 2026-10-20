@@ -201,7 +201,7 @@ Each card's badge reads **ntfy on** or **ntfy off**, and clicking it switches th
 
 ## rPocketBase's pulse
 
-The right end of the line under the title reads like `top`: a dot (green healthy, amber
+The right end of the line under the title reads like `top`: rPocketBase's name and version, a dot (green healthy, amber
 slow at 250 ms or more, red down), the round trip of the desk's own `/api/health` call, and
 requests per minute over the last 1, 5 and 15 minutes. The rates come from rPocketBase's
 running request counter, which `/api/health` reports to a caller with an API key from
