@@ -14,6 +14,8 @@ const state = {
   reply: null,       // the one reply box, kept across redraws so typing survives them
   busy: false,
   keep: "",          // the thread Ian just read or answered: stays in the Unread view until he moves on
+  paused: false,     // Ian stopped the automatic refresh; his own clicks still update
+  missed: false,     // something changed while paused
 };
 
 const $ = (id) => document.getElementById(id);
@@ -247,7 +249,7 @@ function inlineToken(text, index) {
   return ch === "\n" || ch === "`" || ch === "[" || ch === "*" || ch === "_";
 }
 
-function showNote(index) {
+function showNote(index, block = "nearest") {
   const scroller = $("transcript");
   if (!scroller) return;
   for (const node of scroller.querySelectorAll(".note.here")) node.classList.remove("here");
@@ -255,7 +257,7 @@ function showNote(index) {
   if (!note) return;
   note.classList.add("here");
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  note.scrollIntoView({ block: "nearest", inline: "nearest", behavior: reduce ? "auto" : "smooth" });
+  note.scrollIntoView({ block, inline: "nearest", behavior: reduce ? "auto" : "smooth" });
 }
 
 // Every repo the relay talks about is in the RinseRepeatLabs org except TimeFlow, so
@@ -509,6 +511,11 @@ function selectThread(name) {
   render();
   const node = document.getElementById("transcript");
   if (node) node.scrollTop = 0;
+  // Choosing a thread lands on the first note still waiting on Ian, where Mark read is.
+  // Only here, on his click: a background refresh never moves the page.
+  const thread = state.board && (state.board.threads || []).find((row) => row.name === name);
+  const index = thread ? thread.messages.findIndex((note) => !note.read && note.recipient === "ian") : -1;
+  if (index >= 0) showNote(index, "start");
 }
 
 function renderMeta() {
@@ -533,6 +540,39 @@ function renderMeta() {
   ].filter(Boolean);
   meta.textContent = bits.join("  ·  ");
   if (board.fixture) meta.append("  ·  sample data");
+  if (state.paused) meta.append(state.missed ? "  ·  paused, something new is waiting" : "  ·  paused");
+  meta.append(" ", pauseButton());
+}
+
+function pauseButton() {
+  const button = el("button", "pause", state.paused ? "Resume" : "Pause");
+  button.type = "button";
+  button.setAttribute("aria-pressed", state.paused ? "true" : "false");
+  button.title = state.paused
+    ? "Start refreshing again, and catch up now"
+    : "Stop the page refreshing. Your own Mark read and Reply still show.";
+  button.addEventListener("click", () => {
+    state.paused = !state.paused;
+    if (!state.paused) {
+      state.missed = false;
+      load();
+    } else {
+      renderMeta();
+    }
+  });
+  return button;
+}
+
+// The timer and the server's push both come through here; Ian's own actions call load().
+function autoLoad() {
+  if (state.paused) {
+    if (!state.missed) {
+      state.missed = true;
+      renderMeta();
+    }
+    return;
+  }
+  load();
 }
 
 function stationMood(station) {
@@ -1187,10 +1227,10 @@ if (window.__BOARD__) {
   render();
 }
 load();
-setInterval(load, 10000);
+setInterval(autoLoad, 10000);
 try {
   const events = new EventSource("/api/events");
-  events.addEventListener("board", () => load());
+  events.addEventListener("board", () => autoLoad());
 } catch (_) {
   /* polling still refreshes the desk */
 }
