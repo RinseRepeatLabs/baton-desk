@@ -526,7 +526,25 @@ h1 {
 
 .talk .stamp { grid-column: 1; grid-row: 2; }
 .talk .countline { grid-column: 1; grid-row: 3; margin: 0 0 14px; }
-.talk .reply { grid-column: 1; grid-row: 4; min-width: 0; padding-right: 16px; }
+.talk .reply,
+.talk .reply-open { grid-column: 1; grid-row: 4; min-width: 0; }
+.talk .reply { padding-right: 16px; }
+
+.reply-open {
+  justify-self: start;
+  margin: 0 0 14px;
+  padding: 3px 12px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.reply-open:hover { background: var(--hover); color: var(--fg); }
+.reply-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .talk .notes { grid-column: 1; grid-row: 5; min-width: 0; padding-right: 16px; }
 
 .reply {
@@ -1142,7 +1160,8 @@ button.as-link {
     margin: 2px 0 16px;
     padding-left: 0;
   }
-  .talk .reply { grid-row: 5; padding-right: 0; }
+  .talk .reply, .talk .reply-open { grid-row: 5; }
+  .talk .reply { padding-right: 0; }
   .talk .notes { grid-row: 6; padding-right: 0; }
   .lane-list { overflow: visible; }
 }

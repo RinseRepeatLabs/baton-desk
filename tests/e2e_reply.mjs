@@ -102,12 +102,20 @@ const last = (await notes(T)).at(-1);
 check(last.sender === "ian" && last.recipient === "mac" && last.baton === "mac", "the reply is from Ian, to the Mac, baton to the Mac");
 check(last.issue === "tester-pool#20", "it carries the thread's issue");
 check((await notes(T)).filter((x) => x.recipient === "ian").every((x) => x.read_at), "replying marks Ian's remaining notes read");
-check(await p.locator(".reply input").inputValue() === "", "the box clears after sending");
+await p.waitForSelector(".reply-open");
+check(await p.locator(".talk .reply").count() === 0, "with the baton handed to the Mac, the box folds to a Reply… button");
+await p.locator(".reply-open").click();
+check(await p.locator(".reply input").inputValue() === "", "opened again, it's empty after sending");
+check(await p.evaluate(() => document.activeElement && document.activeElement.name) === "subject", "and the cursor is in the subject");
 const bodyLinks = await p.$$eval(".note .body a", (as) => as.map((a) => a.textContent + " " + a.href));
 check(bodyLinks.some((l) => l.startsWith("tester-pool#21 https://github.com/RinseRepeatLabs/tester-pool/issues/21")), "#21 in the reply resolves to tester-pool");
 
 await p.locator(".reply-send").click();
 check(/subject/.test(await p.locator(".reply-error").textContent()), "an empty subject is caught before sending");
+await p.locator(".reply textarea").fill("half a thought");
+relay("linux", "send", "mac", "--thread", `nudge-${Date.now()}`, "--baton", "mac", "--subject", "another redraw");
+await p.waitForTimeout(12000);
+check(await p.locator(".reply textarea").inputValue() === "half a thought", "a draft keeps the box open where the baton isn't Ian's");
 
 // Jump: a long thread whose note for Ian sits far below the fold.
 const J = `jump-${Date.now()}`;
@@ -145,9 +153,9 @@ check(await p.locator(".meta .pause").textContent() === "Pause", "Resume catches
 await p.locator(".talk").screenshot({ path: SHOT });
 const phone = await b.newPage({ viewport: { width: 390, height: 900 } });
 await phone.goto(DESK + "/#" + T + "");
-await phone.waitForSelector(".reply");
+await phone.waitForSelector(".reply, .reply-open");
 check(!(await phone.evaluate(() => document.documentElement.scrollWidth > innerWidth)), "no sideways scroll on a phone");
-await phone.locator(".reply").screenshot({ path: SHOT.replace(".png", "-phone.png") });
+await phone.locator(".talk").screenshot({ path: SHOT.replace(".png", "-phone.png") });
 await b.close();
 console.log(`\n${n - fails}/${n} checks passed`);
 process.exit(fails ? 1 : 0);
