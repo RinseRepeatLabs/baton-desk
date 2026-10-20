@@ -5,9 +5,12 @@ Reads rPocketBase's records API. The key stays in this process.
 
 from __future__ import annotations
 
+import collections
 import json
 import os
 import ssl
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -120,16 +123,72 @@ def list_records(url, token, ca_file, collection, sort="-created"):
         page += 1
 
 
-def health(url, ca_file):
+# ── rPocketBase's pulse, like top's load average ─────────────────────────────
+# Each read times /api/health and, where the server reports it (rPocketBase with
+# health metrics, for a caller with a key), keeps its running request count. The
+# rates are that count's growth over the last 1, 5 and 15 minutes.
+
+WINDOWS = (1, 5, 15)            # minutes
+MIN_SPAN = 20                   # seconds of history before a rate means anything
+_samples = collections.deque()  # (monotonic seconds, requestsTotal, uptimeSecs)
+_samples_lock = threading.Lock()
+
+
+def request_rates(samples, now, total, uptime=None):
+    """Requests per minute over each window, from a running counter. A counter that went
+    backwards means the server restarted: start again rather than report a negative."""
+    if samples and (total < samples[-1][1] or (uptime is not None and samples[-1][2] is not None
+                                               and uptime < samples[-1][2])):
+        samples.clear()
+    samples.append((now, total, uptime))
+    # Keep one sample at least the longest window old, so that window can be whole.
+    while len(samples) > 1 and now - samples[1][0] >= WINDOWS[-1] * 60:
+        samples.popleft()
+    rates, covered = {}, {}
+    for minutes in WINDOWS:
+        # Measure from the newest sample a full window old, over the span actually covered,
+        # so gaps between reads don't blank the figure; with less history, from the oldest.
+        older = [s for s in samples if now - s[0] >= minutes * 60]
+        base = older[-1] if older else samples[0]
+        span = now - base[0]
+        if span < MIN_SPAN:
+            rates[str(minutes)] = None
+            covered[str(minutes)] = round(span)
+            continue
+        rates[str(minutes)] = round((total - base[1]) / span * 60, 1)
+        covered[str(minutes)] = round(span)
+    return {"per_minute": rates, "covered_secs": covered}
+
+
+def health(url, ca_file, token=""):
+    """Up or down, the round trip, and request rates when the server reports a counter."""
+    started = time.monotonic()
     try:
-        got = request_json(url, "", ca_file, "/api/health")
-    except ApiError:
-        return {}
+        try:
+            got = request_json(url, token, ca_file, "/api/health")
+        except ApiError as err:
+            if not token or err.status not in (401, 403):
+                raise
+            got = request_json(url, "", ca_file, "/api/health")
+    except ApiError as err:
+        return {"ok": False, "error": err.message, "ping_ms": None}
+    ping = round((time.monotonic() - started) * 1000)
     data = got.get("data") or {}
-    return {
+    out = {
+        "ok": True,
         "name": data.get("displayName") or data.get("name") or "rPocketBase",
         "version": data.get("version") or "",
+        "ping_ms": ping,
     }
+    metrics = data.get("metrics")
+    if isinstance(metrics, dict) and isinstance(metrics.get("requestsTotal"), int):
+        with _samples_lock:
+            out["rates"] = request_rates(_samples, time.monotonic(), metrics["requestsTotal"],
+                                         metrics.get("uptimeSecs"))
+        out["errors_5xx"] = metrics.get("requests5xx")
+        out["latency_avg_ms"] = metrics.get("latencyAvgMs")
+        out["uptime_secs"] = metrics.get("uptimeSecs")
+    return out
 
 
 def load_protocol_rules():
@@ -420,7 +479,10 @@ def fixture_board():
         "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "me": "linux",
         "host": "fixture",
-        "health": {"name": "rPocketBase", "version": "fixture"},
+        "health": {"ok": True, "name": "rPocketBase", "version": "fixture", "ping_ms": 4,
+                   "rates": {"per_minute": {"1": 12.0, "5": 9.6, "15": 7.9},
+                             "covered_secs": {"1": 60, "5": 300, "15": 900}},
+                   "errors_5xx": 0, "latency_avg_ms": 3, "uptime_secs": 86400},
         "message_count": len(notes),
         "threads": threads,
         "stations": stations,
@@ -558,7 +620,7 @@ def build_board(cfg=None, fixture=False):
     builds_status, builds, _builds_err = _try_collection(url, coord_tokens, ca, "build_requests")
     plans_status, plans, _plans_err = _try_collection(url, coord_tokens, ca, "round_plans")
     host = urllib.parse.urlparse(url).hostname or url
-    info = health(url, ca)
+    info = health(url, ca, token)
     return {
         "ok": True,
         "fixture": False,

@@ -199,6 +199,17 @@ The first successful read is a baseline and stays quiet, including across restar
 
 Each card's badge reads **ntfy on** or **ntfy off**, and clicking it switches that station only. The message title names the station, and they all share the one topic. While a station is off, its holds are still remembered, so turning it back on does not replay what you missed. The topic URL stays on the server.
 
+## rPocketBase's pulse
+
+The right end of the line under the title reads like `top`: a dot (green healthy, amber
+slow at 250 ms or more, red down), the round trip of the desk's own `/api/health` call, and
+requests per minute over the last 1, 5 and 15 minutes. The rates come from rPocketBase's
+running request counter, which `/api/health` reports to a caller with an API key from
+rPocketBase #83 on. The desk keeps 15 minutes of it and works out each window's growth.
+A window without enough history yet is dimmed, and its tooltip says how much it covers.
+A server restart starts the history over. The desk's own reads count toward the rates, as
+`top` counts itself. Against an older rPocketBase it shows the dot and the ping only.
+
 ## Reading and replying
 
 The desk is Ian's, so it can write as `ian`, and only as `ian`:
