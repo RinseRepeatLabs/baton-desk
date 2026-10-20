@@ -476,6 +476,102 @@ h1 {
 .talk .stamp { grid-column: 1; grid-row: 2; }
 .talk .countline { grid-column: 1; grid-row: 3; margin: 0 0 14px; }
 .talk .notes { grid-column: 1; grid-row: 4; min-width: 0; padding-right: 16px; }
+.talk .reply { grid-column: 1; grid-row: 5; min-width: 0; padding-right: 16px; }
+
+.reply {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 18px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--ian);
+  border-radius: 6px;
+}
+
+.reply h3 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.reply input,
+.reply textarea,
+.reply select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+}
+
+.reply textarea { resize: vertical; }
+.reply select { width: auto; }
+.reply select option { background: var(--bg); color: var(--fg); }
+
+.reply input:focus-visible,
+.reply textarea:focus-visible,
+.reply select:focus-visible,
+.reply-send:focus-visible,
+.mark-read:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.reply-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.reply-baton {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.reply-send {
+  padding: 6px 16px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.reply-send:disabled { opacity: 0.6; cursor: default; }
+
+.reply-error {
+  margin: 0;
+  min-height: 1em;
+  color: var(--warn);
+  font-size: 0.82rem;
+}
+
+.mark-read {
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.mark-read:disabled { color: var(--faint); cursor: default; }
 
 .splitter {
   grid-column: 2;
@@ -996,6 +1092,7 @@ button.as-link {
     padding-left: 0;
   }
   .talk .notes { grid-row: 5; padding-right: 0; }
+  .talk .reply { grid-row: 6; padding-right: 0; }
   .lane-list { overflow: visible; }
 }
 

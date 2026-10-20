@@ -10,6 +10,9 @@ const state = {
   filter: "all",
   query: "",
   selected: "",
+  drafts: {},        // thread -> { subject, body, baton } Ian hasn't sent yet
+  reply: null,       // the one reply box, kept across redraws so typing survives them
+  busy: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -319,6 +322,158 @@ function threadRepo(thread) {
   return issues.length ? repoOf(issues[issues.length - 1]) : "";
 }
 
+// ── Ian writing from the desk ───────────────────────────────────────────────
+
+async function post(path, payload) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.ok) throw new Error(body.error || `The desk said ${res.status}.`);
+  return body;
+}
+
+function markReadButton(ids, label) {
+  const button = el("button", "mark-read", label);
+  button.type = "button";
+  button.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    button.disabled = true;
+    button.textContent = "Marking…";
+    try {
+      await post("/api/read", { ids });
+      await load();
+    } catch (err) {
+      button.disabled = false;
+      button.textContent = label;
+      button.title = err.message;
+      flash(err.message);
+    }
+  });
+  return button;
+}
+
+// Whoever handed the thread to Ian gets it back by default; otherwise it stays put.
+function defaultBaton(thread) {
+  if (thread.baton !== "ian") return thread.baton || "none";
+  const from = [...thread.messages].reverse().find((note) => note.sender && note.sender !== "ian");
+  return from ? from.sender : "linux";
+}
+
+const BATON_CHOICES = [
+  ["mac", "Mac"],
+  ["linux", "Linux"],
+  ["ian", "Me (keep it)"],
+  ["none", "Nobody (set it down)"],
+];
+
+function replyBox(thread) {
+  if (!state.reply) state.reply = buildReplyBox();
+  const box = state.reply;
+  if (box.dataset.thread !== thread.name) {
+    saveDraft();
+    const draft = state.drafts[thread.name] || {};
+    box.dataset.thread = thread.name;
+    box.elements.subject.value = draft.subject || "";
+    box.elements.body.value = draft.body || "";
+    box.elements.baton.value = draft.baton || defaultBaton(thread);
+    box.querySelector(".reply-error").textContent = "";
+  }
+  return box;
+}
+
+function saveDraft() {
+  const box = state.reply;
+  if (!box || !box.dataset.thread) return;
+  const { subject, body, baton } = box.elements;
+  if (subject.value || body.value) {
+    state.drafts[box.dataset.thread] = { subject: subject.value, body: body.value, baton: baton.value };
+  } else {
+    delete state.drafts[box.dataset.thread];
+  }
+}
+
+function buildReplyBox() {
+  const form = el("form", "reply");
+  form.noValidate = true;
+  form.append(el("h3", "", "Reply as Ian"));
+  const subject = el("input");
+  subject.name = "subject";
+  subject.maxLength = 200;
+  subject.placeholder = "Subject: the one line they'll see first";
+  subject.setAttribute("aria-label", "Subject");
+  const body = el("textarea");
+  body.name = "body";
+  body.rows = 4;
+  body.placeholder = "Anything more (Markdown). Optional.";
+  body.setAttribute("aria-label", "Note");
+  const row = el("div", "reply-row");
+  const label = el("label", "reply-baton", "Baton to ");
+  const baton = el("select");
+  baton.name = "baton";
+  for (const [value, text] of BATON_CHOICES) {
+    const option = el("option", "", text);
+    option.value = value;
+    baton.append(option);
+  }
+  label.append(baton);
+  const send = el("button", "reply-send", "Send");
+  send.type = "submit";
+  row.append(label, send);
+  form.append(subject, body, row, el("p", "reply-error"));
+  for (const field of [subject, body, baton]) field.addEventListener("input", saveDraft);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const error = form.querySelector(".reply-error");
+    if (!subject.value.trim()) {
+      error.textContent = "A reply needs a subject line.";
+      subject.focus();
+      return;
+    }
+    send.disabled = true;
+    send.textContent = "Sending…";
+    error.textContent = "";
+    try {
+      await post("/api/reply", {
+        thread: form.dataset.thread, subject: subject.value, body: body.value, baton: baton.value,
+      });
+      delete state.drafts[form.dataset.thread];
+      subject.value = "";
+      body.value = "";
+      form.dataset.thread = "";   // the next render re-reads the default baton
+      await load();
+    } catch (err) {
+      error.textContent = err.message;
+    } finally {
+      send.disabled = false;
+      send.textContent = "Send";
+    }
+  });
+  return form;
+}
+
+// A redraw detaches and re-attaches the reply box, which drops focus. Put it back.
+function rememberFocus() {
+  const active = document.activeElement;
+  if (!state.reply || !active || !state.reply.contains(active)) return null;
+  return { node: active, start: active.selectionStart, end: active.selectionEnd };
+}
+
+function restoreFocus(focus) {
+  if (!focus || !document.contains(focus.node)) return;
+  focus.node.focus({ preventScroll: true });
+  if (typeof focus.start === "number" && focus.node.setSelectionRange) {
+    focus.node.setSelectionRange(focus.start, focus.end);
+  }
+}
+
+function flash(message) {
+  const meta = $("meta");
+  if (meta) meta.textContent = message;
+}
+
 function personName(id) {
   return (WHO[id] && WHO[id].name) || id || "Settled";
 }
@@ -550,6 +705,7 @@ function renderThreads() {
 
 function renderTranscript() {
   const root = $("transcript");
+  const focus = rememberFocus();
   clear(root);
   const board = state.board;
   if (!board) {
@@ -590,6 +746,11 @@ function renderTranscript() {
       count.append(link || document.createTextNode(issueLabel(issue)));
     });
   }
+  const mine = thread.messages.filter((note) => !note.read && note.recipient === "ian" && note.id);
+  if (mine.length > 1) {
+    count.append(" · ");
+    count.append(markReadButton(mine.map((note) => note.id), `Mark all ${mine.length} read`));
+  }
   talk.append(count);
 
   const notes = el("div", "notes");
@@ -603,7 +764,10 @@ function renderTranscript() {
     const time = el("time", "", when(note.at));
     if (note.at) time.dateTime = note.at;
     head.append(time);
-    if (!note.read) head.append(el("span", "unread-tag", "Unread"));
+    if (!note.read) {
+      head.append(el("span", "unread-tag", "Unread"));
+      if (note.recipient === "ian" && note.id) head.append(markReadButton([note.id], "Mark read"));
+    }
     const repo = repoOf(note.issue) || threadRepo(thread);
     if (note.issue) {
       const link = issueLink(note.issue);
@@ -625,7 +789,9 @@ function renderTranscript() {
     notes.append(block);
   });
   talk.append(notes, mountSplitter(talk), renderTimeline(holds));
+  talk.append(replyBox(thread));
   root.append(talk);
+  restoreFocus(focus);
 }
 
 const NOTES_WIDTH_KEY = "baton-desk-notes-width";

@@ -199,6 +199,26 @@ The first successful read is a baseline and stays quiet, including across restar
 
 Each card's badge reads **ntfy on** or **ntfy off**, and clicking it switches that station only. The message title names the station, and they all share the one topic. While a station is off, its holds are still remembered, so turning it back on does not replay what you missed. The topic URL stays on the server.
 
+## Reading and replying
+
+The desk is Ian's, so it can write as `ian`, and only as `ian`:
+
+- **Mark read** on an unread note addressed to Ian, or **Mark all read** when a thread has
+  several. A note to `linux` or `mac` can't be marked read here: that's the session's inbox,
+  and reading it from the desk would hide it from the session that has to act on it.
+- **Reply** under any thread: a subject, an optional Markdown note, and who gets the baton.
+  It defaults to whoever handed the thread to Ian. The note goes to that station, or back to
+  the last one that wrote if the baton stays with Ian or is set down. It carries the
+  thread's issue, so its `#numbers` keep their repo, and replying marks Ian's unread notes
+  on the thread read.
+
+A draft survives the page redrawing underneath it. The server checks every write itself:
+the ids, the recipient, the thread, the lengths. It accepts a POST only from its own page:
+the `Host` must be this desk, any `Origin` must be this desk, and the body must be JSON. A
+cross-site JSON request needs a CORS preflight that this server never answers. That's what
+keeps a web page open in the same browser from posting notes as Ian. The fixture is
+read-only. `tests/e2e_reply.mjs` drives all of it against a throwaway rPocketBase.
+
 ## Run
 
 Python 3, standard library only.
