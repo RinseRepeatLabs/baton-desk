@@ -16,6 +16,7 @@ const state = {
   keep: "",          // the thread Ian just read or answered: stays in the Unread view until he moves on
   replyOpen: "",     // a thread whose baton isn't Ian's, where he opened the reply box anyway
   paused: false,     // Ian stopped the automatic refresh; his own clicks still update
+  writing: false,    // Ian is in the reply box: hold the refresh until he sends
   missed: false,     // something changed while paused
 };
 
@@ -447,6 +448,23 @@ function buildReplyBox() {
   row.append(label, send);
   form.append(subject, body, row, el("p", "reply-error"));
   for (const field of [subject, body, baton]) field.addEventListener("input", saveDraft);
+  // Clicking into the box holds the refresh until the reply is sent. Leaving it empty
+  // lets go again, so an abandoned click doesn't freeze the desk.
+  form.addEventListener("focusin", () => {
+    if (!state.writing) {
+      state.writing = true;
+      renderMeta();
+    }
+  });
+  form.addEventListener("focusout", () => {
+    setTimeout(() => {
+      if (form.contains(document.activeElement)) return;
+      if (state.writing && !subject.value.trim() && !body.value.trim()) {
+        state.writing = false;
+        if (!state.paused && state.missed) resumeRefresh(); else renderMeta();
+      }
+    }, 0);
+  });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const error = form.querySelector(".reply-error");
@@ -465,6 +483,8 @@ function buildReplyBox() {
       });
       delete state.drafts[form.dataset.thread];
       state.replyOpen = "";
+      state.writing = false;
+      if (!state.paused) state.missed = false;
       subject.value = "";
       body.value = "";
       form.dataset.thread = "";   // the next render re-reads the default baton
@@ -557,36 +577,49 @@ function renderMeta() {
     `${board.threads.length} thread${board.threads.length === 1 ? "" : "s"}`,
     health.version ? `${health.name || "rPocketBase"} ${health.version}` : (health.name || "rPocketBase"),
     board.host ? board.host : "",
-    board.fetched_at ? `read ${ago(board.fetched_at)}` : "",
   ].filter(Boolean);
-  meta.textContent = bits.join("  ·  ");
+  // The button sits before the "read … ago" text, whose width changes every refresh.
+  meta.append(bits.join("  ·  ") + "  ·  ", pauseButton(), " ");
+  if (board.fetched_at) meta.append(`read ${ago(board.fetched_at)}`);
   if (board.fixture) meta.append("  ·  sample data");
-  if (state.paused) meta.append(state.missed ? "  ·  paused, something new is waiting" : "  ·  paused");
-  meta.append(" ", pauseButton());
+  if (held()) {
+    const why = state.writing && !state.paused ? "paused while you write" : "paused";
+    meta.append(`  ·  ${why}${state.missed ? ", something new is waiting" : ""}`);
+  }
+}
+
+function held() {
+  return state.paused || state.writing;
 }
 
 function pauseButton() {
-  const button = el("button", "pause", state.paused ? "Resume" : "Pause");
+  const button = el("button", "pause", held() ? "Resume" : "Pause");
   button.type = "button";
-  button.setAttribute("aria-pressed", state.paused ? "true" : "false");
-  button.title = state.paused
+  button.setAttribute("aria-pressed", held() ? "true" : "false");
+  button.title = held()
     ? "Start refreshing again, and catch up now"
     : "Stop the page refreshing. Your own Mark read and Reply still show.";
   button.addEventListener("click", () => {
-    state.paused = !state.paused;
-    if (!state.paused) {
-      state.missed = false;
-      load();
+    if (held()) {
+      resumeRefresh();
     } else {
+      state.paused = true;
       renderMeta();
     }
   });
   return button;
 }
 
+function resumeRefresh() {
+  state.paused = false;
+  state.writing = false;
+  state.missed = false;
+  load();
+}
+
 // The timer and the server's push both come through here; Ian's own actions call load().
 function autoLoad() {
-  if (state.paused) {
+  if (held()) {
     if (!state.missed) {
       state.missed = true;
       renderMeta();

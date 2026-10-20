@@ -123,7 +123,8 @@ h1 {
 }
 
 .meta .pause {
-  margin-left: 6px;
+  min-width: 5.5em;   /* Pause and Resume take the same room */
+  text-align: center;
   padding: 1px 9px;
   border: 1px solid var(--line);
   border-radius: 99px;

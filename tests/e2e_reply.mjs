@@ -84,20 +84,26 @@ await p.locator('#filters [data-filter="all"]').click();
 relay("mac", "send", "ian", "--thread", T, "--baton", "ian", "--subject", "and one more thing");
 await p.waitForFunction(() => document.querySelectorAll(".note .mark-read").length === 1);
 
-// Type a reply, then make the board redraw underneath it: text and focus must survive.
+// Clicking into the reply box holds the refresh until the reply is sent.
 await p.locator(".reply input").fill("Yes, ship it");
+check(/paused while you write/.test(await p.locator("#meta").textContent()), "clicking into the reply box pauses the refresh");
+check(await p.locator(".meta .pause").textContent() === "Resume", "and the button offers Resume");
 await p.locator(".reply textarea").click();
 await p.keyboard.type("Go ahead with #21 too");
 const redraw = `redraw-${Date.now()}`;
 relay("linux", "send", "mac", "--thread", redraw, "--baton", "mac", "--subject", "a redraw");
-await p.waitForSelector(`text=${redraw}`, { timeout: 20000 });
-check(await p.locator(".reply textarea").inputValue() === "Go ahead with #21 too", "a redraw mid-typing keeps the draft");
-check(await p.evaluate(() => document.activeElement && document.activeElement.name) === "body", "and keeps the cursor in it");
+await p.waitForFunction(() => /something new is waiting/.test(document.querySelector("#meta").textContent), null, { timeout: 20000 });
+check(await p.locator(`#threads .thread:has-text("${redraw}")`).count() === 0, "a note arriving while Ian writes doesn't redraw the page");
+check(await p.evaluate(() => document.activeElement && document.activeElement.name) === "body", "and the cursor stays where he's typing");
 await p.keyboard.type("!");
-check(await p.locator(".reply textarea").inputValue() === "Go ahead with #21 too!", "typing carries on where it was");
+check(await p.locator(".reply textarea").inputValue() === "Go ahead with #21 too!", "typing carries on untouched");
 
 await p.locator(".reply-send").click();
 await p.waitForFunction(() => [...document.querySelectorAll(".note h3")].some((h) => h.textContent === "Yes, ship it"));
+await p.waitForSelector(`#threads .thread:has-text("${redraw}")`, { timeout: 5000 });
+check(true, "sending catches up: what arrived meanwhile appears");
+check(!/paused/.test(await p.locator("#meta").textContent()) && await p.locator(".meta .pause").textContent() === "Pause",
+      "and the refresh is back on");
 const last = (await notes(T)).at(-1);
 check(last.sender === "ian" && last.recipient === "mac" && last.baton === "mac", "the reply is from Ian, to the Mac, baton to the Mac");
 check(last.issue === "tester-pool#20", "it carries the thread's issue");
@@ -113,9 +119,26 @@ check(bodyLinks.some((l) => l.startsWith("tester-pool#21 https://github.com/Rins
 await p.locator(".reply-send").click();
 check(/subject/.test(await p.locator(".reply-error").textContent()), "an empty subject is caught before sending");
 await p.locator(".reply textarea").fill("half a thought");
-relay("linux", "send", "mac", "--thread", `nudge-${Date.now()}`, "--baton", "mac", "--subject", "another redraw");
-await p.waitForTimeout(12000);
-check(await p.locator(".reply textarea").inputValue() === "half a thought", "a draft keeps the box open where the baton isn't Ian's");
+const nudge = `nudge-${Date.now()}`;
+relay("linux", "send", "mac", "--thread", nudge, "--baton", "mac", "--subject", "another redraw");
+// Wait for the desk's server to have it, so Resume has something to catch up on.
+for (let i = 0; i < 40; i++) {
+  const board = await (await fetch(DESK + "/api/board")).json();
+  if (board.threads.some((t) => t.name === nudge)) break;
+  await new Promise((r) => setTimeout(r, 500));
+}
+await p.locator(".meta .pause").click();     // Resume: let go of the hold early
+await p.waitForSelector(`#threads .thread:has-text("${nudge}")`, { timeout: 10000 });
+check(await p.locator(".reply textarea").inputValue() === "half a thought",
+      "Resume lets the page redraw, and the draft (on a thread that isn't Ian's) survives it");
+
+// An empty box left behind doesn't hold the desk.
+await p.locator(".reply textarea").fill("");
+await p.locator(".reply input").click();
+await p.locator("#search").click();
+const released = await p.waitForFunction(() => !/paused/.test(document.querySelector("#meta").textContent), null, { timeout: 3000 })
+  .then(() => true, () => false);
+check(released, "leaving the box empty lets the refresh go again");
 
 // Jump: a long thread whose note for Ian sits far below the fold.
 const J = `jump-${Date.now()}`;

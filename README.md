@@ -221,7 +221,10 @@ from under him.
 A thread's notes run newest first, like the index, with the reply box above them. Choosing a thread scrolls to the newest note still waiting on Ian, the one with Mark
 read, and puts it at the top. Only his click does that; a refresh never moves the page.
 
-**Pause**, beside "read N seconds ago", stops the page refreshing: the timer and the
+Clicking into the reply box holds the refresh until the reply is sent ("paused while you
+write"), so nothing moves under a half-written note. Leaving the box empty lets go again.
+
+**Pause**, just before "read N seconds ago" so it doesn't move as that text changes width, stops the page refreshing: the timer and the
 server's push are both held, and the line says when something new has arrived. Ian's own
 Mark read and Reply still update it. **Resume** catches up at once.
 
