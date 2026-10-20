@@ -342,7 +342,16 @@ function renderMeta() {
 }
 
 function stationMood(station) {
-  if (station.holding.length) return { kind: "working", label: "Working" };
+  if (station.holding.length) {
+    // holding is newest first, so the first thread is the one most recently handed over.
+    const more = station.holding.length - 1;
+    return {
+      kind: "working",
+      label: "Working on",
+      thread: station.holding[0].thread,
+      more: more > 0 ? `+${more} more` : "",
+    };
+  }
   const ons = [];
   for (const item of station.waiting) {
     if (WHO[item.on] && item.on !== "none" && !ons.includes(item.on)) ons.push(item.on);
@@ -376,13 +385,24 @@ function renderStations() {
     const head = el("div", "station-head");
     const seal = el("div", `seal ${station.id}`, String(station.holding.length));
     seal.title = `${station.holding.length} thread${station.holding.length === 1 ? "" : "s"} waiting on ${who.name}`;
-    const titles = el("div");
+    const titles = el("div", "station-titles");
     const h = el("h2", "", who.name);
     if (station.id === board.me) {
       const here = el("span", "here", " · this machine");
       h.append(here);
     }
-    titles.append(h, el("p", "place", who.place), el("p", "station-state", mood.label));
+    const moodLine = el("p", "station-state");
+    moodLine.setAttribute("aria-label", [mood.label, mood.thread, mood.more].filter(Boolean).join(" "));
+    moodLine.append(el("span", "station-label", mood.label));
+    if (mood.thread) {
+      const name = el("button", "station-thread", mood.thread);
+      name.type = "button";
+      name.title = `Open ${mood.thread}`;
+      name.addEventListener("click", () => selectThread(mood.thread));
+      moodLine.append(name);
+      if (mood.more) moodLine.append(el("span", "station-more", mood.more));
+    }
+    titles.append(h, el("p", "place", who.place), moodLine);
     head.append(seal, titles);
     const badge = ntfyBadge(station.id);
     if (badge) head.append(badge);
