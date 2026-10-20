@@ -14,6 +14,7 @@ const state = {
   reply: null,       // the one reply box, kept across redraws so typing survives them
   busy: false,
   keep: "",          // the thread Ian just read or answered: stays in the Unread view until he moves on
+  replyOpen: "",     // a thread whose baton isn't Ian's, where he opened the reply box anyway
   paused: false,     // Ian stopped the automatic refresh; his own clicks still update
   missed: false,     // something changed while paused
 };
@@ -373,6 +374,24 @@ const BATON_CHOICES = [
   ["none", "Nobody (set it down)"],
 ];
 
+// The box is for when the thread waits on Ian. Elsewhere it's one small button, unless
+// he opened it or has a draft there: a draft is never hidden.
+function replyArea(thread) {
+  const draft = state.drafts[thread.name];
+  const open = thread.baton === "ian" || state.replyOpen === thread.name
+    || (draft && (draft.subject || draft.body));
+  if (open) return replyBox(thread);
+  const button = el("button", "reply-open", "Reply…");
+  button.type = "button";
+  button.title = `The baton is with ${personName(thread.baton)}. You can still write on this thread.`;
+  button.addEventListener("click", () => {
+    state.replyOpen = thread.name;
+    renderTranscript();
+    if (state.reply) state.reply.elements.subject.focus();
+  });
+  return button;
+}
+
 function replyBox(thread) {
   if (!state.reply) state.reply = buildReplyBox();
   const box = state.reply;
@@ -445,6 +464,7 @@ function buildReplyBox() {
         thread: form.dataset.thread, subject: subject.value, body: body.value, baton: baton.value,
       });
       delete state.drafts[form.dataset.thread];
+      state.replyOpen = "";
       subject.value = "";
       body.value = "";
       form.dataset.thread = "";   // the next render re-reads the default baton
@@ -507,6 +527,7 @@ function filteredThreads() {
 function selectThread(name) {
   state.selected = name;
   if (name !== state.keep) state.keep = "";
+  if (name !== state.replyOpen) state.replyOpen = "";
   if (name) history.replaceState(null, "", "#" + encodeURIComponent(name));
   render();
   const node = document.getElementById("transcript");
@@ -872,7 +893,7 @@ function renderTranscript() {
     previous = baton;
     notes.prepend(block);
   });
-  talk.append(replyBox(thread), notes, mountSplitter(talk), renderTimeline(holds));
+  talk.append(replyArea(thread), notes, mountSplitter(talk), renderTimeline(holds));
   root.append(talk);
   restoreFocus(focus);
 }
