@@ -375,6 +375,42 @@ h1 {
 
 .filters button:hover { background: var(--hover); }
 
+.filters .unread-filter.has-unread:not([aria-pressed="true"]) {
+  border-color: var(--ian);
+  color: var(--ian);
+  font-weight: 600;
+}
+
+.station-corner {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  align-items: flex-start;
+  margin-left: auto;
+  align-self: flex-start;
+}
+
+.station-corner .ntfy-badge { margin-left: 0; }
+
+.unread-badge {
+  flex: none;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border: 1px solid currentColor;
+  border-radius: 99px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.unread-badge.linux { color: var(--linux); }
+.unread-badge.mac { color: var(--mac); }
+.unread-badge.ian { color: var(--ian); }
+.unread-badge:hover { background: var(--hover); }
+.unread-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .filters button[aria-pressed="true"] {
   background: var(--accent);
   border-color: var(--accent);

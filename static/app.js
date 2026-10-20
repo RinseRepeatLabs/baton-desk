@@ -13,6 +13,7 @@ const state = {
   drafts: {},        // thread -> { subject, body, baton } Ian hasn't sent yet
   reply: null,       // the one reply box, kept across redraws so typing survives them
   busy: false,
+  keep: "",          // the thread Ian just read or answered: stays in the Unread view until he moves on
 };
 
 const $ = (id) => document.getElementById(id);
@@ -342,6 +343,7 @@ function markReadButton(ids, label) {
     event.stopPropagation();
     button.disabled = true;
     button.textContent = "Marking…";
+    state.keep = state.selected;
     try {
       await post("/api/read", { ids });
       await load();
@@ -434,6 +436,7 @@ function buildReplyBox() {
     }
     send.disabled = true;
     send.textContent = "Sending…";
+    state.keep = form.dataset.thread;
     error.textContent = "";
     try {
       await post("/api/reply", {
@@ -483,7 +486,13 @@ function filteredThreads() {
   if (!board) return [];
   const q = state.query.trim().toLowerCase();
   return board.threads.filter((thread) => {
-    if (state.filter !== "all" && thread.baton !== state.filter) return false;
+    if (state.filter.startsWith("unread-")) {
+      // The thread Ian just read stays listed, so marking it doesn't jump the page away.
+      const who = state.filter.slice("unread-".length);
+      if (thread.name !== state.keep && !thread.unread.some((note) => note.recipient === who)) return false;
+    } else if (state.filter !== "all" && thread.baton !== state.filter) {
+      return false;
+    }
     if (!q) return true;
     const hay = [
       thread.name, thread.subject, thread.issues.join(" "),
@@ -495,6 +504,7 @@ function filteredThreads() {
 
 function selectThread(name) {
   state.selected = name;
+  if (name !== state.keep) state.keep = "";
   if (name) history.replaceState(null, "", "#" + encodeURIComponent(name));
   render();
   const node = document.getElementById("transcript");
@@ -588,8 +598,11 @@ function renderStations() {
     }
     titles.append(h, el("p", "place", who.place), moodLine);
     head.append(seal, titles);
+    const corner = el("div", "station-corner");
+    if (station.unread) corner.append(unreadBadge(station));
     const badge = ntfyBadge(station.id);
-    if (badge) head.append(badge);
+    if (badge) corner.append(badge);
+    if (corner.childNodes.length) head.append(corner);
     card.append(head);
 
     card.append(el("p", "pile-label", "Has the baton"));
@@ -611,6 +624,35 @@ function renderStations() {
     }
     root.append(card);
   }
+}
+
+// How many notes to this station it hasn't read. A click lists those threads.
+function unreadBadge(station) {
+  const who = WHO[station.id];
+  const button = el("button", `unread-badge ${station.id}`, `${station.unread} unread`);
+  button.type = "button";
+  button.title = `Show the threads with notes ${who.name === "Ian" ? "you haven't" : who.name + " hasn't"} read`;
+  button.addEventListener("click", () => setFilter(`unread-${station.id}`));
+  return button;
+}
+
+function setFilter(filter) {
+  state.filter = filter;
+  state.keep = "";
+  for (const node of $("filters").querySelectorAll("button")) {
+    node.setAttribute("aria-pressed", node.dataset.filter === filter ? "true" : "false");
+  }
+  render();
+}
+
+// The index's Unread filter carries Ian's count, so the number is there before the click.
+function renderUnreadFilter() {
+  const button = document.querySelector('#filters [data-filter="unread-ian"]');
+  if (!button || !state.board || state.board.error) return;
+  const ian = (state.board.stations || []).find((station) => station.id === "ian");
+  const count = ian ? ian.unread : 0;
+  button.textContent = count ? `Unread ${count}` : "Unread";
+  button.classList.toggle("has-unread", count > 0);
 }
 
 function ntfyBadge(stationId) {
@@ -1081,6 +1123,7 @@ function planCard(plan) {
 
 function render() {
   renderMeta();
+  renderUnreadFilter();
   renderStations();
   if (state.board && !state.board.error) {
     const threads = filteredThreads();
@@ -1124,11 +1167,7 @@ function bind() {
   $("filters").addEventListener("click", (event) => {
     const button = event.target.closest("button");
     if (!button) return;
-    state.filter = button.dataset.filter;
-    for (const node of $("filters").querySelectorAll("button")) {
-      node.setAttribute("aria-pressed", node === button ? "true" : "false");
-    }
-    render();
+    setFilter(button.dataset.filter);
   });
   $("search").addEventListener("input", (event) => {
     state.query = event.target.value;

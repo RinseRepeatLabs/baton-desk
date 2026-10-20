@@ -47,6 +47,18 @@ class ShapeTests(unittest.TestCase):
         self.assertEqual([row["thread"] for row in settled], ["c"])
         self.assertEqual(by_id["linux"]["holding"], [])
 
+    def test_stations_count_their_unread_notes(self):
+        threads = shape_messages([
+            msg(thread="a", recipient="ian", baton="ian", read_at=None),
+            msg(thread="a", id="2", recipient="ian", baton="ian", read_at=None,
+                at="2026-10-18 16:00:00.000Z"),
+            msg(thread="b", recipient="mac", baton="mac", read_at=None),
+            msg(thread="c", recipient="ian", baton="none"),             # read
+        ])
+        stations, _ = stations_from(threads)
+        unread = {row["id"]: row["unread"] for row in stations}
+        self.assertEqual(unread, {"linux": 0, "mac": 1, "ian": 2})
+
     def test_station_rows_carry_the_threads_issue(self):
         # The page resolves a bare #16 in a subject against this, so it must be the
         # thread's own repo, not a guess.

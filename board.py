@@ -241,6 +241,9 @@ def stations_from(threads):
             "id": person,
             "holding": holding,
             "waiting": waiting,
+            # Notes addressed to this station that it hasn't read: what it still owes a look.
+            "unread": sum(1 for thread in threads for note in thread["unread"]
+                          if note["recipient"] == person),
         })
     settled = [
         {"thread": thread["name"], "subject": thread["subject"], "at": thread["at"]}

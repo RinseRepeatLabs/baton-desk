@@ -46,10 +46,36 @@ check(await p.locator(".note .mark-read").count() === 2, "each unread note to Ia
 check(await p.locator(".countline .mark-read").textContent() === "Mark all 2 read", "and the thread offers Mark all 2 read");
 check(await p.locator(".reply select").inputValue() === "mac", "the baton defaults back to the Mac, who handed it over");
 
+// Unread counts: Ian has 2 notes waiting, the Mac 1.
+const ianCard = p.locator(".station").filter({ hasText: "You" });
+check(await ianCard.locator(".unread-badge").textContent() === "2 unread", "Ian's station says 2 unread");
+check(await p.locator(".station").filter({ hasText: "Kitchen mini" }).locator(".unread-badge").textContent() === "1 unread",
+      "the Mac's station counts the note it hasn't read");
+check(await p.locator('#filters [data-filter="unread-ian"]').textContent() === "Unread 2", "the index's Unread filter carries the count");
+await p.locator('#filters [data-filter="unread-ian"]').click();
+const listed = await p.$$eval("#threads .thread .thread-name > span:first-child", (els) => els.map((e) => e.textContent));
+check(listed.length === 1 && listed[0] === T, "Unread lists only the thread with Ian's unread notes");
+await p.locator(".station").filter({ hasText: "Kitchen mini" }).locator(".unread-badge").click();
+const macListed = await p.$$eval("#threads .thread .thread-name > span:first-child", (els) => els.map((e) => e.textContent));
+check(macListed.includes("other") && !macListed.includes(T), "a station's count lists the threads it hasn't read");
+await p.locator('#filters [data-filter="unread-ian"]').click();
+await p.locator("#threads .thread").first().click();
+
 await p.locator(".note .mark-read").first().click();
 await p.waitForFunction(() => document.querySelectorAll(".note .mark-read").length === 1);
 check((await notes(T))[0].read_at !== "", "Mark read sets read_at on that note");
 check(!(await notes(T))[1].read_at, "and only that note");
+await p.waitForFunction(() => document.querySelector('#filters [data-filter="unread-ian"]').textContent === "Unread 1");
+check(await ianCard.locator(".unread-badge").textContent() === "1 unread", "the counts drop as notes are read");
+await p.locator(".countline").count();
+await p.locator(".note .mark-read").first().click();
+await p.waitForFunction(() => !document.querySelector(".station .unread-badge.ian"));
+check(await p.locator('#filters [data-filter="unread-ian"]').textContent() === "Unread", "at zero the badge goes and the filter is plain again");
+check(await p.locator("#transcript h2").textContent() === T, "the open thread stays put in the Unread view once it's read");
+await p.locator('#filters [data-filter="all"]').click();
+// put one back to unread for the reply checks below, as a fresh note from the Mac
+relay("mac", "send", "ian", "--thread", T, "--baton", "ian", "--subject", "and one more thing");
+await p.waitForFunction(() => document.querySelectorAll(".note .mark-read").length === 1);
 
 // Type a reply, then make the board redraw underneath it: text and focus must survive.
 await p.locator(".reply input").fill("Yes, ship it");
