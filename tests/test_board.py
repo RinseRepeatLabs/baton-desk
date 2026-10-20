@@ -4,7 +4,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from board import shape_messages, shape_protocol, stations_from, BUILTIN_PROTOCOL
+from collections import deque
+
+from board import shape_messages, shape_protocol, stations_from, request_rates, BUILTIN_PROTOCOL
 
 
 def msg(**kwargs):
@@ -70,6 +72,28 @@ class ShapeTests(unittest.TestCase):
         mac = {row["thread"]: row for row in {r["id"]: r for r in stations}["mac"]["holding"]}
         self.assertEqual(mac["a"]["issue"], "tester-pool#16")
         self.assertEqual(mac["b"]["issue"], "")
+
+    def test_request_rates_read_like_load_averages(self):
+        samples = deque()
+        # 10 requests a minute for 15 minutes, sampled every 8 seconds.
+        for i in range(0, 15 * 60 + 1, 8):
+            got = request_rates(samples, 1000.0 + i, 500 + i * 10 // 60, 3600 + i)
+        self.assertAlmostEqual(got["per_minute"]["1"], 10, delta=0.6)
+        self.assertAlmostEqual(got["per_minute"]["5"], 10, delta=0.3)
+        self.assertAlmostEqual(got["per_minute"]["15"], 10, delta=0.3)
+        self.assertGreaterEqual(got["covered_secs"]["15"], 890)
+
+    def test_request_rates_wait_for_history_and_survive_a_restart(self):
+        samples = deque()
+        self.assertIsNone(request_rates(samples, 0.0, 100, 50)["per_minute"]["1"])
+        self.assertIsNone(request_rates(samples, 8.0, 104, 58)["per_minute"]["1"])  # 8s: too little
+        got = request_rates(samples, 120.0, 160, 170)
+        self.assertEqual(got["per_minute"]["1"], 30.0)                  # 104 → 160 over the 112s since t=8
+        self.assertLess(got["covered_secs"]["15"], 900)                  # 15-min figure is partial
+        # rPocketBase restarted: the counter fell back. Start over, never go negative.
+        got = request_rates(samples, 128.0, 3, 2)
+        self.assertEqual(len(samples), 1)
+        self.assertIsNone(got["per_minute"]["1"])
 
     def test_protocol_absent_still_draws_lanes(self):
         rules = {**BUILTIN_PROTOCOL, "from_file": False, "ready_means": {}}

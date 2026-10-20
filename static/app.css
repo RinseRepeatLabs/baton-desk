@@ -122,6 +122,41 @@ h1 {
   font-size: 0.82rem;
 }
 
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  align-items: baseline;
+}
+
+.meta-left { min-width: 0; }
+
+.pulse {
+  display: inline-flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  align-self: center;
+}
+
+.pulse-dot.up { background: #34a853; box-shadow: 0 0 0 3px rgba(52, 168, 83, 0.18); }
+.pulse-dot.slow { background: var(--warn); }
+.pulse-dot.down { background: #ea4335; }
+.pulse-state { color: var(--muted); }
+.pulse-load { display: inline-flex; gap: 8px; }
+.pulse-label { color: var(--faint); }
+.pulse-rate { min-width: 3.2em; text-align: right; color: var(--muted); }
+.pulse-rate.partial { color: var(--faint); }
+
 .meta .pause {
   min-width: 5.5em;   /* Pause and Resume take the same room */
   text-align: center;

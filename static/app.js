@@ -579,13 +579,55 @@ function renderMeta() {
     board.host ? board.host : "",
   ].filter(Boolean);
   // The button sits before the "read … ago" text, whose width changes every refresh.
-  meta.append(bits.join("  ·  ") + "  ·  ", pauseButton(), " ");
-  if (board.fetched_at) meta.append(`read ${ago(board.fetched_at)}`);
-  if (board.fixture) meta.append("  ·  sample data");
+  const left = el("span", "meta-left");
+  left.append(bits.join("  ·  ") + "  ·  ", pauseButton(), " ");
+  if (board.fetched_at) left.append(`read ${ago(board.fetched_at)}`);
+  if (board.fixture) left.append("  ·  sample data");
   if (held()) {
     const why = state.writing && !state.paused ? "paused while you write" : "paused";
-    meta.append(`  ·  ${why}${state.missed ? ", something new is waiting" : ""}`);
+    left.append(`  ·  ${why}${state.missed ? ", something new is waiting" : ""}`);
   }
+  meta.append(left, pulse(health));
+}
+
+// rPocketBase's pulse, read like top: up or down, the round trip, and requests per
+// minute over the last 1, 5 and 15 minutes.
+function pulse(health) {
+  const box = el("span", "pulse");
+  const up = health.ok !== false;
+  const slow = up && health.ping_ms >= 250;
+  const dot = el("span", `pulse-dot ${!up ? "down" : slow ? "slow" : "up"}`);
+  dot.setAttribute("aria-hidden", "true");
+  box.append(dot, el("span", "pulse-state", !up ? "down" : slow ? "slow" : "healthy"));
+  if (!up) {
+    box.title = health.error || "rPocketBase didn't answer /api/health.";
+    return box;
+  }
+  if (typeof health.ping_ms === "number") box.append(el("span", "pulse-ping", `${health.ping_ms} ms`));
+  const rates = health.rates;
+  if (!rates) {
+    box.title = "Request rates appear once rPocketBase reports its counters to a key (rPocketBase #83).";
+    return box;
+  }
+  const load = el("span", "pulse-load");
+  load.append(el("span", "pulse-label", "req/min"));
+  const notes = [];
+  for (const minutes of ["1", "5", "15"]) {
+    const value = rates.per_minute[minutes];
+    const covered = rates.covered_secs[minutes] || 0;
+    const partial = value === null || covered < Number(minutes) * 60 * 0.9;
+    const cell = el("span", `pulse-rate${partial ? " partial" : ""}`, value === null ? "–" : value.toFixed(1));
+    load.append(cell);
+    if (partial) notes.push(`${minutes}-minute: ${value === null ? "not enough history yet" : `covers ${Math.round(covered / 60) || "<1"} min so far`}`);
+  }
+  box.append(load);
+  const extra = [];
+  if (typeof health.latency_avg_ms === "number") extra.push(`average response ${health.latency_avg_ms} ms`);
+  if (health.errors_5xx) extra.push(`${health.errors_5xx} server errors since start`);
+  if (typeof health.uptime_secs === "number") extra.push(`up ${span(health.uptime_secs * 1000)}`);
+  box.title = ["Requests per minute over the last 1, 5 and 15 minutes, like top's load average.",
+    ...notes, ...extra].join("\n");
+  return box;
 }
 
 function held() {
