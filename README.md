@@ -206,7 +206,7 @@ The desk is Ian's, so it can write as `ian`, and only as `ian`:
 - **Mark read** on an unread note addressed to Ian, or **Mark all read** when a thread has
   several. A note to `linux` or `mac` can't be marked read here: that's the session's inbox,
   and reading it from the desk would hide it from the session that has to act on it.
-- **Reply** when the thread waits on Ian; anywhere else it's a small **Reply…** button, because he can still step in. A draft keeps the box open wherever the baton is. a subject, an optional Markdown note, and who gets the baton.
+- **Reply** when the thread waits on Ian; anywhere else it's a small **Reply…** button, because he can still step in. A draft keeps the box open wherever the baton is. A reply has a subject, an optional Markdown note, and who gets the baton.
   It defaults to whoever handed the thread to Ian. The note goes to that station, or back to
   the last one that wrote if the baton stays with Ian or is set down. It carries the
   thread's issue, so its `#numbers` keep their repo, and replying marks Ian's unread notes
