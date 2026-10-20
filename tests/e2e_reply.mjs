@@ -102,6 +102,39 @@ check(bodyLinks.some((l) => l.startsWith("tester-pool#21 https://github.com/Rins
 await p.locator(".reply-send").click();
 check(/subject/.test(await p.locator(".reply-error").textContent()), "an empty subject is caught before sending");
 
+// Jump: a long thread whose note for Ian sits far below the fold.
+const J = `jump-${Date.now()}`;
+const filler = "A line of filler so this note takes some room.\n\n".repeat(4);
+const relayBody = (me, body, ...args) => execFileSync("python3", [RELAY, ...args, "--body", "-"], {
+  env: { ...process.env, RPB_URL: URL, RELAY_KEY: KEY, RELAY_ME: me, HOME: "/nonexistent" }, input: body });
+for (let i = 0; i < 12; i++) relayBody("linux", filler, "send", "mac", "--thread", J, "--baton", "mac", "--subject", `step ${i}`);
+relayBody("mac", filler, "send", "ian", "--thread", J, "--baton", "ian", "--subject", "this one needs you");
+for (let i = 12; i < 15; i++) relay("linux", "send", "mac", "--thread", J, "--baton", "mac", "--subject", `step ${i}`);
+await p.waitForSelector(`#threads .thread:has-text("${J}")`, { timeout: 20000 });
+await p.locator(`#threads .thread:has-text("${J}")`).click();
+await p.waitForSelector(".note.here");
+const target = p.locator(".note.here");
+check(await target.locator("h3").textContent() === "this one needs you", "clicking the thread lands on the note waiting on Ian");
+await p.waitForTimeout(800);   // let a smooth scroll finish
+const inView = await p.evaluate(() => {
+  const box = document.querySelector("#transcript").getBoundingClientRect();
+  const note = document.querySelector(".note.here").getBoundingClientRect();
+  return note.top >= box.top - 1 && note.top < box.bottom && note.top < innerHeight;
+});
+check(inView, "and it's scrolled into view, Mark read button and all");
+
+// Pause: nothing new shows until Resume.
+await p.locator(".meta .pause").click();
+check(await p.locator(".meta .pause").textContent() === "Resume", "Pause turns into Resume");
+const P = `while-paused-${Date.now()}`;
+relay("mac", "send", "ian", "--thread", P, "--baton", "ian", "--subject", "sent while paused");
+await p.waitForFunction(() => /something new is waiting/.test(document.querySelector("#meta").textContent), null, { timeout: 20000 });
+check(await p.locator(`#threads .thread:has-text("${P}")`).count() === 0, "while paused, a new note doesn't redraw the page");
+check(/something new is waiting/.test(await p.locator("#meta").textContent()), "but the desk says something is waiting");
+await p.locator(".meta .pause").click();
+await p.waitForSelector(`#threads .thread:has-text("${P}")`, { timeout: 10000 });
+check(await p.locator(".meta .pause").textContent() === "Pause", "Resume catches up at once and goes back to Pause");
+
 await p.locator(".talk").screenshot({ path: SHOT });
 const phone = await b.newPage({ viewport: { width: 390, height: 900 } });
 await phone.goto(DESK + "/#" + T + "");

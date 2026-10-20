@@ -218,6 +218,13 @@ those threads. The index's **Unread** filter does the same for Ian, with his cou
 A thread he has just read stays in that view until he moves on, so it doesn't vanish
 from under him.
 
+Choosing a thread scrolls to the first note still waiting on Ian, the one with Mark
+read, and puts it at the top. Only his click does that; a refresh never moves the page.
+
+**Pause**, beside "read N seconds ago", stops the page refreshing: the timer and the
+server's push are both held, and the line says when something new has arrived. Ian's own
+Mark read and Reply still update it. **Resume** catches up at once.
+
 A draft survives the page redrawing underneath it. The server checks every write itself:
 the ids, the recipient, the thread, the lengths. It accepts a POST only from its own page:
 the `Host` must be this desk, any `Origin` must be this desk, and the body must be JSON. A

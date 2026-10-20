@@ -122,6 +122,21 @@ h1 {
   font-size: 0.82rem;
 }
 
+.meta .pause {
+  margin-left: 6px;
+  padding: 1px 9px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meta .pause:hover { background: var(--hover); }
+.meta .pause[aria-pressed="true"] { border-color: var(--warn); color: var(--warn); font-weight: 600; }
+.meta .pause:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .sheet {
   margin: 0 16px 24px;
   background: var(--base);
