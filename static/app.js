@@ -575,7 +575,6 @@ function renderMeta() {
   const bits = [
     `${board.message_count} note${board.message_count === 1 ? "" : "s"}`,
     `${board.threads.length} thread${board.threads.length === 1 ? "" : "s"}`,
-    health.version ? `${health.name || "rPocketBase"} ${health.version}` : (health.name || "rPocketBase"),
     board.host ? board.host : "",
   ].filter(Boolean);
   // The button sits before the "read … ago" text, whose width changes every refresh.
@@ -594,6 +593,9 @@ function renderMeta() {
 // minute over the last 1, 5 and 15 minutes.
 function pulse(health) {
   const box = el("span", "pulse");
+  // The server's name and version lead its pulse, on the right with the rest of it.
+  box.append(el("span", "pulse-version",
+    health.version ? `${health.name || "rPocketBase"} ${health.version}` : (health.name || "rPocketBase")));
   const up = health.ok !== false;
   const slow = up && health.ping_ms >= 250;
   const dot = el("span", `pulse-dot ${!up ? "down" : slow ? "slow" : "up"}`);
