@@ -61,10 +61,17 @@ check(macListed.includes("other") && !macListed.includes(T), "a station's count 
 await p.locator('#filters [data-filter="unread-ian"]').click();
 await p.locator("#threads .thread").first().click();
 
+const shown = await p.$$eval(".note h3", (hs) => hs.map((h) => h.textContent));
+check(shown[0] === "and one more thing" && shown.at(-1) === "waiting on you: ship tester-pool#20?",
+      "notes run newest first, like the thread index");
+check(await p.evaluate(() => document.querySelector(".talk .reply").compareDocumentPosition(document.querySelector(".talk .notes")) & Node.DOCUMENT_POSITION_FOLLOWING),
+      "the reply box sits above the notes");
+const clicked = await p.locator(".note:has(.mark-read)").first().locator("h3").textContent();
 await p.locator(".note .mark-read").first().click();
 await p.waitForFunction(() => document.querySelectorAll(".note .mark-read").length === 1);
-check((await notes(T))[0].read_at !== "", "Mark read sets read_at on that note");
-check(!(await notes(T))[1].read_at, "and only that note");
+const after = await notes(T);
+check(after.find((x) => x.subject === clicked).read_at !== "", "Mark read sets read_at on the note clicked");
+check(after.filter((x) => x.subject !== clicked && x.recipient === "ian").every((x) => !x.read_at), "and only that note");
 await p.waitForFunction(() => document.querySelector('#filters [data-filter="unread-ian"]').textContent === "Unread 1");
 check(await ianCard.locator(".unread-badge").textContent() === "1 unread", "the counts drop as notes are read");
 await p.locator(".countline").count();

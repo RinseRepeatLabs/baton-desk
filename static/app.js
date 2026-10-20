@@ -511,10 +511,10 @@ function selectThread(name) {
   render();
   const node = document.getElementById("transcript");
   if (node) node.scrollTop = 0;
-  // Choosing a thread lands on the first note still waiting on Ian, where Mark read is.
-  // Only here, on his click: a background refresh never moves the page.
+  // Choosing a thread lands on the newest note still waiting on Ian, the first one he sees
+  // with Mark read. Only here, on his click: a background refresh never moves the page.
   const thread = state.board && (state.board.threads || []).find((row) => row.name === name);
-  const index = thread ? thread.messages.findIndex((note) => !note.read && note.recipient === "ian") : -1;
+  const index = thread ? thread.messages.findLastIndex((note) => !note.read && note.recipient === "ian") : -1;
   if (index >= 0) showNote(index, "start");
 }
 
@@ -835,6 +835,8 @@ function renderTranscript() {
   }
   talk.append(count);
 
+  // Walked oldest-first, because each handoff line is about the note before it, and shown
+  // newest-first, like the thread index.
   const notes = el("div", "notes");
   let previous = "";
   thread.messages.forEach((note, index) => {
@@ -868,10 +870,9 @@ function renderTranscript() {
       block.append(el("p", "handed", handed));
     }
     previous = baton;
-    notes.append(block);
+    notes.prepend(block);
   });
-  talk.append(notes, mountSplitter(talk), renderTimeline(holds));
-  talk.append(replyBox(thread));
+  talk.append(replyBox(thread), notes, mountSplitter(talk), renderTimeline(holds));
   root.append(talk);
   restoreFocus(focus);
 }

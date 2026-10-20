@@ -218,7 +218,7 @@ those threads. The index's **Unread** filter does the same for Ian, with his cou
 A thread he has just read stays in that view until he moves on, so it doesn't vanish
 from under him.
 
-Choosing a thread scrolls to the first note still waiting on Ian, the one with Mark
+A thread's notes run newest first, like the index, with the reply box above them. Choosing a thread scrolls to the newest note still waiting on Ian, the one with Mark
 read, and puts it at the top. Only his click does that; a refresh never moves the page.
 
 **Pause**, beside "read N seconds ago", stops the page refreshing: the timer and the
