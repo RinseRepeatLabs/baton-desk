@@ -80,11 +80,14 @@ class ApiError(Exception):
         self.message = message
 
 
-def request_json(url, token, ca_file, path, query=None):
+def request_json(url, token, ca_file, path, query=None, method="GET", body=None):
     full = url.rstrip("/") + path
     if query:
         full += "?" + urllib.parse.urlencode(query)
-    req = urllib.request.Request(full, method="GET")
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(full, data=data, method=method)
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
     if token:
         req.add_header("Authorization", bearer(token))
     try:
@@ -422,6 +425,110 @@ def fixture_board():
         "protocol": shape_protocol(rules, [], [], 404, 404),
         "error": "",
     }
+
+
+# ── Ian writing from the desk ───────────────────────────────────────────────
+# The desk is Ian's: it reads and replies as `ian`, never as a session. The browser
+# sends ids and text; everything that decides what gets written is checked here.
+
+WRITER = "ian"
+SUBJECT_MAX = 200
+BODY_MAX = 20000
+
+
+class DeskError(Exception):
+    """A sentence for the page: a refused write, never a traceback or a secret."""
+
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.status = status
+
+
+def _writer(cfg=None):
+    if os.environ.get("BATON_DESK_FIXTURE") == "1":
+        raise DeskError("The sample data is read-only.", 409)
+    cfg = cfg if cfg is not None else load_config()
+    url = (cfg.get("RPB_URL") or "").strip()
+    token = (cfg.get("RELAY_KEY") or cfg.get("RPB_API_KEY") or "").strip()
+    if not url or not token:
+        raise DeskError("RPB_URL and RELAY_KEY (or RPB_API_KEY) are needed to write.", 503)
+    return url, token, cfg.get("RPB_CA_FILE") or ""
+
+
+def _now():
+    t = datetime.now(timezone.utc)
+    return t.strftime("%Y-%m-%d %H:%M:%S.") + f"{t.microsecond // 1000:03d}Z"
+
+
+def _filter_str(value):
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def mark_read(ids, cfg=None):
+    """Mark Ian's notes read. A note to linux or mac stays unread: that is the session's
+    inbox, and reading it here would hide it from the session that has to act on it."""
+    if not isinstance(ids, list) or not ids or len(ids) > 200 or not all(
+            isinstance(i, str) and i.isalnum() and len(i) <= 32 for i in ids):
+        raise DeskError("Expected a list of note ids.")
+    url, token, ca = _writer(cfg)
+    done = []
+    for note_id in dict.fromkeys(ids):
+        path = f"/api/collections/{COLLECTION}/records/{note_id}"
+        try:
+            row = request_json(url, token, ca, path)
+        except ApiError as err:
+            raise DeskError(f"Couldn't read note {note_id}: {err.message}", 502) from err
+        if row.get("recipient") != WRITER:
+            raise DeskError(f"Note {note_id} is for {row.get('recipient') or 'nobody'}, not Ian, "
+                            "so it stays unread for them.", 403)
+        if row.get("read_at"):
+            continue
+        try:
+            request_json(url, token, ca, path, method="PATCH", body={"read_at": _now()})
+        except ApiError as err:
+            raise DeskError(f"Couldn't mark {note_id} read: {err.message}", 502) from err
+        done.append(note_id)
+    return done
+
+
+def reply(thread, subject, body="", baton="", cfg=None):
+    """A note from Ian on an existing thread. It goes to whoever gets the baton, or back to
+    whoever last wrote if the baton stays with Ian or is set down. The thread's issue rides
+    along, so its #numbers keep their repo. Ian's unread notes on the thread are read now."""
+    thread = (thread or "").strip() if isinstance(thread, str) else ""
+    subject = (subject or "").strip() if isinstance(subject, str) else ""
+    body = (body or "").strip() if isinstance(body, str) else ""
+    if not thread:
+        raise DeskError("Which thread?")
+    if not subject:
+        raise DeskError("A reply needs a subject line.")
+    if len(subject) > SUBJECT_MAX or len(body) > BODY_MAX:
+        raise DeskError(f"Keep the subject under {SUBJECT_MAX} characters and the note under {BODY_MAX}.")
+    if baton not in PEOPLE + ("none",):
+        raise DeskError("The baton goes to linux, mac, ian or none.")
+    url, token, ca = _writer(cfg)
+    try:
+        notes = request_json(url, token, ca, f"/api/collections/{COLLECTION}/records",
+                             {"filter": f"thread = {_filter_str(thread)}", "sort": "at", "perPage": 200})
+    except ApiError as err:
+        raise DeskError(f"Couldn't read {thread}: {err.message}", 502) from err
+    notes = notes.get("items") or []
+    if not notes:
+        raise DeskError(f"There's no thread called {thread}.", 404)
+    others = [n.get("sender") for n in reversed(notes) if n.get("sender") in PEOPLE and n.get("sender") != WRITER]
+    recipient = baton if baton in ("linux", "mac") else (others[0] if others else "linux")
+    issue = next((n.get("issue") for n in reversed(notes) if n.get("issue")), "")
+    try:
+        row = request_json(url, token, ca, f"/api/collections/{COLLECTION}/records", method="POST", body={
+            "thread": thread, "sender": WRITER, "recipient": recipient, "at": _now(),
+            "subject": subject, "body": body, "baton": baton, "issue": issue,
+        })
+    except ApiError as err:
+        raise DeskError(f"The reply wasn't sent: {err.message}", 502) from err
+    unread = [n["id"] for n in notes if n.get("recipient") == WRITER and not n.get("read_at")]
+    if unread:
+        mark_read(unread, cfg)
+    return {"id": row.get("id"), "recipient": recipient, "baton": baton}
 
 
 def build_board(cfg=None, fixture=False):

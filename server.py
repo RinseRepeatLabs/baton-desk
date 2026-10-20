@@ -193,20 +193,59 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send(404, "Not found", "text/plain; charset=utf-8")
 
-    def do_POST(self):
-        path = urlparse(self.path).path
-        if path != "/api/ntfy":
-            self._send(404, "Not found", "text/plain; charset=utf-8")
-            return
+    def _same_origin(self):
+        """Only this page may write. Any site open in the same browser can aim a form
+        at 127.0.0.1, so a POST must name this host (which also stops DNS rebinding),
+        come from this origin, and be JSON: a cross-site JSON request needs a CORS
+        preflight this server never answers, so the browser never sends it."""
+        here = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+        if (self.headers.get("Host") or "") not in here:
+            return False
+        origin = self.headers.get("Origin")
+        if origin is not None and origin not in {f"http://{h}" for h in here}:
+            return False
+        return (self.headers.get("Content-Type") or "").split(";")[0].strip() == "application/json"
+
+    def _json_body(self, limit):
         length = int(self.headers.get("Content-Length") or 0)
-        if length > 1000:
-            self._send(400, json.dumps({"ok": False, "error": "Expected a small JSON body."}), "application/json")
-            return
+        if length > limit:
+            return None
         raw = self.rfile.read(length) if length else b""
         try:
             body = json.loads(raw.decode() or "{}")
-        except json.JSONDecodeError:
-            body = None
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+        return body if isinstance(body, dict) else None
+
+    def _wrote(self, result):
+        """A write lands in rPocketBase; repaint every open page from it."""
+        refresh()
+        self._send(200, json.dumps({"ok": True, **result}), "application/json")
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        if path not in ("/api/ntfy", "/api/read", "/api/reply"):
+            self._send(404, "Not found", "text/plain; charset=utf-8")
+            return
+        if not self._same_origin():
+            self._send(403, json.dumps({"ok": False, "error": "Only the desk's own page can write."}),
+                       "application/json")
+            return
+        if path in ("/api/read", "/api/reply"):
+            body = self._json_body(40000)
+            if body is None:
+                self._send(400, json.dumps({"ok": False, "error": "Expected a JSON object."}), "application/json")
+                return
+            try:
+                if path == "/api/read":
+                    self._wrote({"read": board.mark_read(body.get("ids"))})
+                else:
+                    self._wrote({"note": board.reply(body.get("thread"), body.get("subject"),
+                                                     body.get("body"), body.get("baton"))})
+            except board.DeskError as err:
+                self._send(err.status, json.dumps({"ok": False, "error": str(err)}), "application/json")
+            return
+        body = self._json_body(1000)
         station = body.get("station") if isinstance(body, dict) else None
         if (
             not isinstance(body, dict)
