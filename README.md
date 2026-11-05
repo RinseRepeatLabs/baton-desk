@@ -279,6 +279,35 @@ The fixture serves invented threads and skips the network. Use it to look at the
 
 `body` can hold private tester data, beta codes, and device rows. That is why the server binds to `127.0.0.1`. The source is public. A running desk stays on the machine that holds the key.
 
+### Start it at login
+
+On a Linux machine, a systemd user service starts the desk at login. Save this as `~/.config/systemd/user/baton-desk.service`, with `WorkingDirectory` pointing at your clone:
+
+```ini
+[Unit]
+Description=Baton desk
+
+[Service]
+WorkingDirectory=%h/Development/baton-desk
+ExecStart=/usr/bin/python3 server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+Stop any desk already holding the port, then enable the service:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now baton-desk
+```
+
+A `git pull` doesn't reach the running desk. Restart it with `systemctl --user restart baton-desk`. The logs are in `journalctl --user -u baton-desk -f`.
+
+If the network isn't up yet at login, the page shows an error until a later read succeeds, about 8 seconds on. With ntfy set, the service also means pushes arrive whenever you're logged in. To start it at boot, before login, run `loginctl enable-linger`.
+
 ## Checks
 
 ```bash
