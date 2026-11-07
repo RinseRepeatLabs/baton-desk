@@ -110,6 +110,23 @@ From that grouping it builds three stations:
 
 Unread is every message whose `read_at` is empty.
 
+## Check-ins: `relay_presence`
+
+Each station's card shows when it last checked the queue, from `relay_presence` (one row
+per station, which `relay.py` updates as it polls, reads and sends):
+
+| Field | Type | Role |
+|---|---|---|
+| `station` | select | `linux`, `mac` or `ian`. Unique. |
+| `seen_at` | date | When that station last looked at the queue. |
+| `via` | text | What looked: `watcher`, `session`, `headless run`. |
+
+A green dot means within three minutes, amber within thirty, red after that. The hover
+adds the station's last read, taken from the newest `read_at` on notes addressed to it,
+because a watcher can be polling while its handler fails. With no row, the card shows only
+the last read. If the collection is missing or the key can't read it, the desk draws no
+badges and loses nothing else.
+
 ## Realtime is only a wake-up
 
 The page does not treat the event stream as the record. A change on the collection wakes a fresh list.

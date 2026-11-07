@@ -743,7 +743,10 @@ function renderStations() {
       moodLine.append(name);
       if (mood.more) moodLine.append(el("span", "station-more", mood.more));
     }
-    titles.append(h, el("p", "place", who.place), moodLine);
+    titles.append(h, el("p", "place", who.place));
+    const checkin = checkinLine(station);
+    if (checkin) titles.append(checkin);
+    titles.append(moodLine);
     head.append(seal, titles);
     const corner = el("div", "station-corner");
     if (station.unread) corner.append(unreadBadge(station));
@@ -771,6 +774,34 @@ function renderStations() {
     }
     root.append(card);
   }
+}
+
+// When this station last checked the queue (relay_presence), as a dot and an age.
+// A watcher polls every 30s and checks in every minute, so three minutes of silence is
+// already odd and half an hour means nothing is listening. Hovering adds the last read,
+// because "listening" and "acting on it" fail separately.
+const CHECKIN_FRESH = 3 * 60 * 1000;
+const CHECKIN_STALE = 30 * 60 * 1000;
+
+function checkinLine(station) {
+  const seen = station.checkin;
+  if (!seen && !station.last_read) return null;
+  const line = el("p", "checkin");
+  const read = station.last_read ? `Last read a note ${ago(station.last_read)}.` : "Has never read a note.";
+  if (!seen) {
+    line.classList.add("unknown");
+    line.append(el("span", "checkin-dot"), el("span", "", `read ${ago(station.last_read)}`));
+    line.title = `${read} No check-in recorded: relay.py on that machine predates check-ins, or the key can't write relay_presence.`;
+    return line;
+  }
+  const age = Date.now() - Date.parse(seen.at);
+  const kind = age < CHECKIN_FRESH ? "fresh" : age < CHECKIN_STALE ? "stale" : "gone";
+  line.classList.add(kind);
+  line.append(el("span", "checkin-dot"), el("span", "", `checked in ${ago(seen.at)}`));
+  if (seen.via) line.append(el("span", "checkin-via", `· ${seen.via}`));
+  line.title = `Checked the queue ${when(seen.at, true)}${seen.via ? ` (${seen.via})` : ""}. ${read}`;
+  line.setAttribute("aria-label", `${kind === "fresh" ? "Listening" : kind === "stale" ? "Quiet" : "Not listening"}: ${line.title}`);
+  return line;
 }
 
 // How many notes to this station it hasn't read. A click lists those threads.

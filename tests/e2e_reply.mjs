@@ -47,7 +47,8 @@ check(await p.locator(".countline .mark-read").textContent() === "Mark all 2 rea
 check(await p.locator(".reply select").inputValue() === "mac", "the baton defaults back to the Mac, who handed it over");
 
 // Unread counts: Ian has 2 notes waiting, the Mac 1.
-const ianCard = p.locator(".station").filter({ hasText: "You" });
+// By its seal, not its text: "You" also matches any subject with "you" in it.
+const ianCard = p.locator(".station:has(.seal.ian)");
 check(await ianCard.locator(".unread-badge").textContent() === "2 unread", "Ian's station says 2 unread");
 check(await p.locator(".station").filter({ hasText: "Kitchen mini" }).locator(".unread-badge").textContent() === "1 unread",
       "the Mac's station counts the note it hasn't read");
@@ -147,7 +148,9 @@ const relayBody = (me, body, ...args) => execFileSync("python3", [RELAY, ...args
   env: { ...process.env, RPB_URL: URL, RELAY_KEY: KEY, RELAY_ME: me, HOME: "/nonexistent" }, input: body });
 for (let i = 0; i < 12; i++) relayBody("linux", filler, "send", "mac", "--thread", J, "--baton", "mac", "--subject", `step ${i}`);
 relayBody("mac", filler, "send", "ian", "--thread", J, "--baton", "ian", "--subject", "this one needs you");
-for (let i = 12; i < 15; i++) relay("linux", "send", "mac", "--thread", J, "--baton", "mac", "--subject", `step ${i}`);
+// Ian holds the baton now, so moving it back to the Mac has to be said (relay.py refuses
+// to move a baton the sender doesn't hold without --reassign).
+for (let i = 12; i < 15; i++) relay("linux", "send", "mac", "--thread", J, "--baton", "mac", "--reassign", "--subject", `step ${i}`);
 await p.waitForSelector(`#threads .thread:has-text("${J}")`, { timeout: 20000 });
 await p.locator(`#threads .thread:has-text("${J}")`).click();
 await p.waitForSelector(".note.here");
