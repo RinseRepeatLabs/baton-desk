@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 CONFIG = Path.home() / ".config" / "rrl-testers" / "env"
@@ -352,6 +352,25 @@ def stations_from(threads):
     return stations, settled
 
 
+def attach_checkins(stations, records, presence):
+    """When each station last checked the queue, and when it last read a note.
+
+    `presence` is relay_presence: one row per station, touched by relay.py whenever it
+    polls, reads or sends, labelled with what checked in (`watcher`, `session`, …). The two
+    times answer different questions. A recent check-in says the station is listening;
+    an old last-read beside it, with notes unread, says it's listening and not acting.
+    """
+    rows = {row.get("station"): row for row in presence}
+    for station in stations:
+        row = rows.get(station["id"])
+        station["checkin"] = ({"at": _iso(row.get("seen_at")), "via": row.get("via") or ""}
+                              if row and row.get("seen_at") else None)
+        reads = [record.get("read_at") for record in records
+                 if record.get("recipient") == station["id"] and record.get("read_at")]
+        station["last_read"] = _iso(max(reads)) if reads else ""
+    return stations
+
+
 def _public_build(row):
     return {
         "id": row.get("id"),
@@ -513,6 +532,11 @@ def fixture_board():
     ]
     threads = shape_messages(notes)
     stations, settled = stations_from(threads)
+    stamp = lambda secs: (datetime.now(timezone.utc) - timedelta(seconds=secs)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    attach_checkins(stations, notes, [
+        {"station": "linux", "seen_at": stamp(40), "via": "watcher"},
+        {"station": "mac", "seen_at": stamp(3 * 3600), "via": "session"},
+    ])
     rules = load_protocol_rules()
     return {
         "ok": True,
@@ -651,6 +675,11 @@ def build_board(cfg=None, fixture=False):
     records = list_records(url, token, ca, COLLECTION, sort="at")
     threads = shape_messages(records)
     stations, settled = stations_from(threads)
+    try:
+        presence = list_records(url, token, ca, "relay_presence", sort="station")
+    except ApiError:
+        presence = []   # not imported yet, or the key doesn't cover it: no badges, nothing else lost
+    attach_checkins(stations, records, presence)
     rules = load_protocol_rules()
     coord_tokens = [
         cfg.get("RELEASE_COORD_KEY") or "",

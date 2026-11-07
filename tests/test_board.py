@@ -9,7 +9,7 @@ from collections import deque
 import tempfile
 
 import board
-from board import shape_messages, shape_protocol, stations_from, request_rates, host_name, BUILTIN_PROTOCOL
+from board import attach_checkins, shape_messages, shape_protocol, stations_from, request_rates, host_name, BUILTIN_PROTOCOL
 
 
 def msg(**kwargs):
@@ -133,6 +133,39 @@ class ShapeTests(unittest.TestCase):
         self.assertTrue(shaped["live"])
         self.assertEqual(shaped["plans_http"], 404)
 
+
+
+class CheckinTests(unittest.TestCase):
+    def test_checkin_and_last_read_per_station(self):
+        notes = [
+            msg(id="1", recipient="mac", read_at="2026-11-07 06:00:00.000Z"),
+            msg(id="2", recipient="mac", read_at="2026-11-07 07:00:00.000Z"),
+            msg(id="3", recipient="mac", read_at=None, thread="other"),
+            msg(id="4", recipient="linux", sender="mac", read_at=""),
+        ]
+        stations, _ = stations_from(shape_messages(notes))
+        attach_checkins(stations, notes, [
+            {"station": "mac", "seen_at": "2026-11-07 07:20:00.000Z", "via": "watcher"},
+        ])
+        by = {station["id"]: station for station in stations}
+        self.assertEqual(by["mac"]["checkin"], {"at": "2026-11-07T07:20:00.000Z", "via": "watcher"})
+        # The newest read, not the first, and unread notes don't count.
+        self.assertEqual(by["mac"]["last_read"], "2026-11-07T07:00:00.000Z")
+        self.assertIsNone(by["linux"]["checkin"])
+        self.assertEqual(by["linux"]["last_read"], "")
+        self.assertIsNone(by["ian"]["checkin"])
+
+    def test_no_presence_rows_means_no_badges_not_an_error(self):
+        stations, _ = stations_from(shape_messages([msg()]))
+        attach_checkins(stations, [msg()], [])
+        self.assertTrue(all(station["checkin"] is None for station in stations))
+
+    def test_fixture_shows_a_fresh_and_a_gone_station(self):
+        board_data = board.fixture_board()
+        by = {station["id"]: station for station in board_data["stations"]}
+        self.assertEqual(by["linux"]["checkin"]["via"], "watcher")
+        self.assertEqual(by["mac"]["checkin"]["via"], "session")
+        self.assertIsNone(by["ian"]["checkin"])
 
 if __name__ == "__main__":
     unittest.main()

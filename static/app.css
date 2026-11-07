@@ -439,6 +439,31 @@ h1 {
   font-weight: 600;
 }
 
+.checkin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 6px;
+  margin: 2px 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.checkin-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--faint);
+}
+
+.checkin.fresh .checkin-dot { background: var(--ok); }
+.checkin.stale .checkin-dot { background: var(--warn); }
+.checkin.gone .checkin-dot { background: var(--danger); }
+.checkin.gone { color: var(--danger); }
+.checkin > span { white-space: nowrap; }
+.checkin-via { color: var(--faint); }
+
 .station-corner {
   display: flex;
   flex: none;
